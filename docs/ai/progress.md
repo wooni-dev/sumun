@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-T] 완료(main에 병합). 다음은 PRX 큰 단위 확인(검토 에이전트 → 중간 확인 보고서).
+- 작업: PRX 중간 확인 보고서(`docs/for-me/PRX-report.md`)를 냈다. 사용자 답 대기.
 - 다음 할 일: PRX 큰 단위 감사 결과(AUDIT-5)에 대한 사용자 결정 → PRX 큰 단위 확인(검토 에이전트 + 중간 확인 보고서) → TLS(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
@@ -264,6 +264,12 @@
   - E37 일치: `node --test test/prx/PRX-T-regression.test.ts` → 2/2 통과, 건너뜀 0. `npm test` 257/257(04a3143).
   - E38: 테스트는 헤더의 존재만 확인한다. 순서는 이번에 다시 재지 않았다(PRX-2의 `node scripts/probe/prx2-curl.mjs` 결과가 근거).
 - [PRX-T] 완료: a28e879..(문서 커밋). 다음: 검토 에이전트(목표 문서만) → 중간 확인 보고서.
+
+### [REPORT-PRX] PRX 중간 확인 보고서 (2026-11-07)
+- 검토 에이전트(새 컨텍스트, 목표 문서 `docs/ai/purpose-tree.md`와 코드만, progress·for-me·method-feedback·사례 문서·커밋 메시지는 읽지 않게 함): 일치 17, 불일치 0, 판단 불가 3. 결정 항목 후보 A~G를 냈다. 검증 스크립트는 저장소 밖 임시 폴더에 있어 재현할 수 없다(O19 한계, 보고서에 표시).
+- 실행 증거(bb0be05): `npm test` 257/257, `node scripts/probe/prx1-curl.mjs` 200/501/508/200/400, `node scripts/probe/prx2-curl.mjs` 기록 3건 [확인됨].
+- 보고서: `docs/for-me/PRX-report.md` — 결정 항목 15건(추천과 현재 구현이 다른 것: 2, 3, 4, 6, 10), 방식 보정 O22~O38 모두 승인 추천.
+- 사용자 답을 기다린다. 승인되면: INFRA-8(방식 반영) → Flow 모양 보완(2, 3, 4, 10) → 실행 진입점(6, A10) → PRX ✅ → TLS.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
