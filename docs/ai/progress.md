@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-2] 완료(main에 병합). 다음: TLS-2b → TLS-3.
+- 작업: [TLS-2b] 완료(main에 병합). 다음: TLS-3.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -513,6 +513,36 @@
 - TLS-3에 넘길 것: forge 서명은 동기(67~148ms). 호스트마다 서명하면 새 사이트마다 프록시가 그만큼 멈춘다 [추측].
 - [TLS-2] 완료: 395dd35..7b9ddac + 이 기록 커밋. 다음: TLS-2b(쓰기 견고성·ACL) 또는 TLS-3.
 - `node scripts/check-method.mjs --id TLS-2` → 11개 중 9 ✅, **plan-first ❌·test-first ❌** [확인됨]. 원인: 규칙 변경 커밋(395dd35, CLAUDE.md·.gitignore)을 `[TLS-2]` 이름으로 계획 커밋(1810188)보다 먼저 올려서, 검사기가 그것을 첫 커밋으로 판정했다(작업자 실수). 실제 순서(계획 → 실측 → 테스트 → 구현)는 지켜졌다. 고치려면 이력을 다시 써야 해서 해시 참조가 깨진다 → 남긴다. 다음부터 사용자 결정에 따른 규칙 변경은 **계획 커밋에 함께** 넣는다(계획 커밋은 docs/만 바꾼다는 O3와 부딪히면 별도 ID로). TLS 큰 단위 감사에 넘길 항목(TLS-1b message-format과 함께).
+
+### [TLS-2b] 계획
+- 사용자 승인(2026-11-08): "TLS-2b 진행". 새 정책 결정 없음 — tls2-cases.md 결정 9(키 파일은 본인만), 12(배타 생성 후 진 쪽이 다시 읽기)를 따른다.
+- 미확인 항목(O13): 변화 없음.
+- 보안 사례(O10): TLS-2 계획 때 받은 `docs/ai/tls2-cases.md`의 배정 "2b"(28 쓰기 도중 실패, 29 부분 쓰기, 30 동시 호출, 31 남은 임시 파일, 35 심어 둔 링크, 38 키 파일 ACL). 새로 받지 않는다.
+- 한 줄 보고: 목표 = CA를 만들 때 반쪽 파일·경쟁·링크·느슨한 권한이 생기지 않게 / 범위 =
+  - `src/ca/ca.ts`: `create()` — 임시 파일(`ca-key.pem.<pid>-<난수>.tmp`)을 빈 채로 배타 생성 → icacls로 권한을 본인만으로 → 내용 쓰기 → 하드 링크로 배타 배치(이미 있으면 진 것) → 임시 파일 삭제. 실패하면 만든 것을 되돌린다. 60초 넘은 우리 임시 파일은 지운다. `loadOrCreateCA()` — CA 파일이 일반 파일이 아니면(링크·정션) 거부, 한쪽만 있으면 잠깐(500ms) 기다렸다가 판정(다른 프로세스가 만드는 중일 수 있음), 진 쪽은 다시 읽기. 옵션 `io`(테스트용 쓰기·링크 함수 주입). 오류 code 추가 `CA_WRITE`, `CA_ACL`, `CA_NOT_FILE`
+  - 새 `test/ca/TLS-2b.test.ts`(새 동작), 회귀가 생기면 `test/ca/TLS-2b-regression.test.ts`, 새 `scripts/probe/tls2b-fs.mjs`(Windows 파일 동작 실측)
+  - `docs/ai/tls2-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/TLS-2b.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 이미 있는 키 파일의 권한 검사·수정(범위 밖 기록), Windows 인증서 저장소, TLS-3, 프로세스가 두 링크 사이에서 강제 종료되는 경우(남는 위험으로 기록)
+- 예상 [추측] (판정 기준 포함):
+  - E77: Windows에서 `fs.renameSync(a, b)`는 b가 있어도 덮어쓴다(배타적이지 않다). 판정: 덮어쓰면 일치 → 배치에 rename을 쓰지 않는다.
+  - E78: `fs.linkSync(a, b)`는 b가 있으면 EEXIST로 실패하고, 하드 링크는 원본과 ACL을 공유한다. 판정: EEXIST이고 icacls 결과가 같으면 일치.
+  - E79: `icacls 파일 /inheritance:r /grant:r *<내 SID>:(F)` 뒤 icacls에는 내 계정 한 줄만 남는다. 판정: 권한 줄이 1개면 일치.
+  - E80: 파일 자리에 만든 디렉터리 정션은 `fs.lstatSync().isSymbolicLink()`가 true다(관리자 권한 없이 만들 수 있음). 판정: true면 일치.
+  - E81: `BUILTIN\Users`에 읽기를 상속(OI)(CI)으로 준 폴더에 만든 파일은 icacls에 Users가 보인다(사례 38 테스트의 긍정 전제). 판정: 보이면 일치.
+  - E82: 지금 구현(36be5f9)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E83: 구현 뒤 `npm test` 실패 0, TLS-2 테스트 25개 그대로 통과, 큰 단위 대기 TLS 2. 판정: 셋 다.
+  - E84: 동시 5개(같은 프로세스) + 2개(다른 프로세스)가 모두 같은 CA를 받고 디스크와 같으며 임시 파일이 남지 않는다. 판정: 모두.
+- **멈춤(2026-11-08): 테스트 결함 보고, 사용자 결정 대기.** 구현(21cb821) 뒤 TLS-2b 37개 중 36 통과. 실패 1개 = `test/ca/TLS-2b.test.ts` B38 "Users가 읽을 수 있게 상속하는 폴더…"의 `key.names.includes('Users')`. `names`는 icacls 출력 전체라 **파일 경로 `C:\Users\…`**의 "Users"에 걸린다. 같은 테스트의 SDDL 검사(ACE = 본인 SID 하나, D:P)는 통과, 구현이 만든 키의 icacls 출력은 `wooni\wooni:(F)` 한 줄 [확인됨]. 제안: 경로를 뺀 권한 줄만 검사하도록 그 assertion을 고친다(기대값 "Users·Everyone 등이 없음"은 그대로). 사용자가 "테스트 수정 허용"을 입력해야 고칠 수 있다.
+- 재개(2026-11-08): 사용자가 "테스트 수정 허용" 입력 → B38의 그 assertion만 고침(a3cf4eb, 원래 값·이유는 커밋 메시지). 고친 테스트가 구현 전 ca.ts(36be5f9)에서 여전히 실패함을 확인.
+- 실측 (명령 원문, 결과 전문은 각 커밋 메시지):
+  - E77·E78·E80·E81 일치, **E79 불일치**(a7773bc): `node scripts/probe/tls2b-fs.mjs` → /grant:r 뒤에도 SYSTEM·Administrators 남음. /restore는 종료 코드 1300(관리자 특권). E79b(/save로 SDDL 읽고 /remove:g) → 본인 하나, D:P, 77ms. 첫 실행에서 Git Bash whoami가 Windows whoami.exe를 가림 → System32 절대 경로.
+  - **E82 불일치(가벼움)**: `npm run test:red -- test/ca/TLS-2b.test.ts` → 11개 모두 실패지만 assertion 10, 오류 1(B30 동시 5번에서 지금 코드가 던진 EEXIST). 통과한 B31 사례 1개는 회귀 파일로(d13bf4c).
+  - E83 일치: `npm test` → 477 / 475 통과 / 실패 0 / 대기 TLS 2(a3cf4eb). E84 일치: B30 두 테스트 통과.
+  - 독립 도구: `node scripts/probe/tls2-tools.mjs` → 키 icacls `wooni\wooni:(F)` 한 줄(TLS-2 때는 SYSTEM·Administrators·본인), 생성 537ms(권한 설정으로 182 → 537).
+- hook 기록(O25): junit 기록을 읽는 셸 명령이 상태 폴더 규칙에 막힘 → 의도한 보수적 동작. 커밋된 테스트 결함은 규칙대로 멈추고 보고(사용자 허용 뒤 수정).
+- 범위 밖 기록: 이미 있는 키 파일의 권한은 불러올 때 검사하지 않는다(다른 방법으로 만들었거나 나중에 권한이 바뀐 키). 필요하면 경고를 추가하는 작은 단위로.
+- [TLS-2b] 완료: 6eb9f70..5353296 + 이 기록 커밋. 다음: TLS-3(호스트별 인증서 발급).
+- `node scripts/check-method.mjs --id TLS-2b` → 11개 중 10 ✅, test-unchanged ❌(a3cf4eb) [확인됨] — 사용자 허용(“테스트 수정 허용”)으로 고친 테스트가 그대로 잡힌 것. 검사가 의도대로 동작했다. 이유와 원래 값은 a3cf4eb 메시지. TLS 큰 단위 감사에 넘김.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

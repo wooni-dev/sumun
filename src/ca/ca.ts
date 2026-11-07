@@ -6,9 +6,17 @@
 //
 // 깨진 CA를 자동으로 다시 만들지 않는다: 이미 Windows에 등록한 옛 CA가 "믿는 발급자"로 남고, 무엇이 잘못됐는지도 사라진다.
 // 오류에는 경로만 넣고 파일 내용·키·하위 오류(cause)는 넣지 않는다(사례 42).
+//
+// [TLS-2b] 저장 순서(사례 28~31, 35, 38):
+//   빈 임시 파일을 배타 생성 → 키 권한을 본인만으로 → 내용 쓰기 → 하드 링크로 배타 배치(키 먼저, 인증서 나중) → 임시 파일 삭제
+//   rename은 대상이 있어도 덮어쓰므로 쓰지 않는다. link는 대상이 있으면 EEXIST다 [확인됨: scripts/probe/tls2b-fs.mjs E77·E78].
+//   중간에 실패하면 배치한 것을 되돌린다. 키 배치에서 EEXIST면 다른 호출이 먼저 만든 것이므로 그것을 다시 읽는다(결정 12).
+//   남는 위험: 두 링크 사이에서 프로세스가 강제 종료되면 키만 남는다 → 다음 실행은 CA_INCOMPLETE(결정 1대로 멈춤).
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
 import forge from 'node-forge';
 
 export type CA = { certPem: string; keyPem: string };
@@ -22,7 +30,10 @@ export type CAErrorCode =
   | 'CA_DIR_RELATIVE'
   | 'CA_DIR_IN_REPO'
   | 'CA_DIR_NOT_DIR'
-  | 'CA_ENV_MISSING';
+  | 'CA_ENV_MISSING'
+  | 'CA_WRITE' // [TLS-2b] 임시 파일 쓰기·배치 실패(되돌린 뒤)
+  | 'CA_ACL' // [TLS-2b] 키 파일 권한을 본인만으로 정하지 못함(키를 쓰기 전에 멈춤)
+  | 'CA_NOT_FILE'; // [TLS-2b] CA 파일 자리가 일반 파일이 아님(링크·정션·폴더)
 
 export class CAError extends Error {
   readonly code: CAErrorCode;
@@ -121,7 +132,7 @@ function load(f: { cert: string; key: string }, now: Date, onWarning: (msg: stri
   return { certPem, keyPem };
 }
 
-async function create(f: { cert: string; key: string }, dir: string): Promise<CA> {
+async function makeCA(dir: string): Promise<CA> {
   // 결정 15: 키는 Node가 만든다(비동기·OS 난수, 이벤트 루프를 막지 않음). 서명만 forge
   const { privateKey, publicKey } = await new Promise<{ privateKey: string; publicKey: string }>((resolve, reject) =>
     crypto.generateKeyPair(
@@ -152,20 +163,149 @@ async function create(f: { cert: string; key: string }, dir: string): Promise<CA
     { name: 'subjectKeyIdentifier' },
   ]);
   c.sign(pki.privateKeyFromPem(privateKey), forge.md.sha256.create()); // 사례 10: md를 안 넘기면 SHA-1이다 [확인됨: E69]
-  const ca = { certPem: pki.certificateToPem(c), keyPem: privateKey };
-  fs.mkdirSync(dir, { recursive: true });
-  // 'wx': 이미 있으면 덮어쓰지 않는다. 원자적 쓰기·동시 실행·권한(ACL)은 TLS-2b
-  fs.writeFileSync(f.key, ca.keyPem, { flag: 'wx', mode: 0o600 });
-  fs.writeFileSync(f.cert, ca.certPem, { flag: 'wx' });
-  return ca;
+  return { certPem: pki.certificateToPem(c), keyPem: privateKey };
 }
 
-export async function loadOrCreateCA(dir: string, opts: { now?: Date; onWarning?: (msg: string) => void } = {}): Promise<CA> {
+// ---------- [TLS-2b] 키 파일 권한: 본인 하나만(결정 9) ----------
+// Windows 도구는 절대 경로로 부른다. PATH에서 찾으면 Git Bash의 whoami가 Windows whoami.exe를 가린다 [확인됨: tls2b-fs.mjs 첫 실행]
+const SYS = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+const run = (exe: string, args: string[]) =>
+  new Promise<string>((resolve, reject) =>
+    execFile(path.join(SYS, exe), args, { encoding: 'latin1', windowsHide: true }, (err, out) => (err ? reject(err) : resolve(out))),
+  );
+let mySid: Promise<string> | undefined;
+const me = () =>
+  (mySid ??= run('whoami.exe', ['/user', '/fo', 'csv', '/nh']).then((o) => {
+    const sid = o.trim().split(',').pop()?.replace(/"/g, '') ?? '';
+    if (!/^S-1-\d+(-\d+)+$/.test(sid)) throw new Error('SID를 읽지 못함');
+    return sid;
+  }));
+// SDDL 별칭(icacls /save가 잘 알려진 계정을 두 글자로 쓴다). 모르는 별칭은 그대로 두어 /remove:g가 실패하게 한다(실패하면 닫힘)
+const ALIAS: Record<string, string> = { SY: 'S-1-5-18', BA: 'S-1-5-32-544', BU: 'S-1-5-32-545', AU: 'S-1-5-11', WD: 'S-1-1-0', CO: 'S-1-3-0', OW: 'S-1-3-4' };
+async function daclOf(file: string) {
+  const out = path.join(os.tmpdir(), `sumun-acl-${process.pid}-${crypto.randomBytes(6).toString('hex')}.txt`);
+  try {
+    await run('icacls.exe', [file, '/save', out]);
+    const sddl = fs.readFileSync(out).toString('utf16le').split(/\r?\n/)[1] ?? '';
+    const dacl = sddl.slice(Math.max(0, sddl.indexOf('D:')));
+    const aces = [...dacl.matchAll(/\(([^;]*);[^;]*;[^;]*;[^;]*;[^;]*;([^)]*)\)/g)].map((m) => ({ type: m[1], sid: ALIAS[m[2]] ?? m[2] }));
+    return { protected: dacl.startsWith('D:P'), aces };
+  } finally {
+    fs.rmSync(out, { force: true });
+  }
+}
+// /inheritance:r /grant:r만으로는 직접 붙은 다른 계정(SYSTEM·Administrators)이 남는다 → 읽어서 하나씩 지우고, 마지막에 다시 확인한다
+// [확인됨: tls2b-fs.mjs E79 불일치 → E79b]. SDDL을 통째로 덮어쓰는 /restore는 관리자 특권이 필요하다(종료 코드 1300)
+export async function restrictToMe(file: string) {
+  const sid = await me();
+  await run('icacls.exe', [file, '/inheritance:r', '/grant:r', `*${sid}:(F)`]);
+  const others = [...new Set((await daclOf(file)).aces.map((a) => a.sid).filter((s) => s !== sid))];
+  if (others.length) await run('icacls.exe', [file, '/remove:g', ...others.map((s) => `*${s}`)]);
+  const final = await daclOf(file);
+  if (!final.protected || final.aces.length !== 1 || final.aces[0].sid !== sid || final.aces[0].type !== 'A') throw new Error('권한 확인 실패');
+}
+
+// ---------- [TLS-2b] 배치 ----------
+export type CAIO = {
+  writeFile: (p: string, data: string) => void;
+  link: (from: string, to: string) => void;
+  restrict: (keyPath: string) => Promise<void>;
+};
+const defaultIO: CAIO = { writeFile: (p, d) => fs.writeFileSync(p, d), link: (a, b) => fs.linkSync(a, b), restrict: restrictToMe };
+const TMP = /^ca-(key|cert)\.pem\..+\.tmp$/;
+const STALE_MS = 60_000;
+
+// 사례 31: 60초 넘은 우리 임시 파일만 지운다(최근 것은 다른 프로세스가 쓰는 중일 수 있다). 일반 파일만, 링크는 건드리지 않는다
+function cleanStale(dir: string) {
+  for (const n of fs.readdirSync(dir)) {
+    if (!TMP.test(n)) continue;
+    const p = path.join(dir, n);
+    const st = fs.lstatSync(p, { throwIfNoEntry: false });
+    if (st?.isFile() && Date.now() - st.mtimeMs > STALE_MS) fs.rmSync(p, { force: true });
+  }
+}
+
+const LOST = Symbol('lost'); // 키 배치에서 졌다(다른 호출이 먼저 만들었다)
+async function place(f: { cert: string; key: string }, dir: string, ca: CA, io: CAIO): Promise<CA | typeof LOST> {
+  fs.mkdirSync(dir, { recursive: true });
+  cleanStale(dir);
+  const tag = `${process.pid}-${crypto.randomBytes(6).toString('hex')}.tmp`;
+  const tmp = { key: `${f.key}.${tag}`, cert: `${f.cert}.${tag}` };
+  const placed: string[] = [];
+  const fail = (code: 'CA_WRITE' | 'CA_ACL', message: string, p: string) => new CAError(code, message, p);
+  try {
+    try {
+      fs.writeFileSync(tmp.key, '', { flag: 'wx' }); // 빈 채로 만들고
+    } catch {
+      throw fail('CA_WRITE', 'CA 임시 파일을 만들지 못했습니다', tmp.key);
+    }
+    try {
+      await io.restrict(tmp.key); // 권한을 정한 뒤에야 키를 쓴다(사례 38)
+    } catch {
+      throw fail('CA_ACL', 'CA 개인키 파일의 권한을 본인만으로 정하지 못했습니다', tmp.key);
+    }
+    try {
+      io.writeFile(tmp.key, ca.keyPem); // 같은 파일을 다시 열어 쓰면 ACL은 그대로다 [확인됨: E79b]
+      io.writeFile(tmp.cert, ca.certPem);
+    } catch {
+      throw fail('CA_WRITE', 'CA 파일을 쓰지 못했습니다', dir);
+    }
+    try {
+      io.link(tmp.key, f.key); // 하드 링크는 ACL을 공유한다 [확인됨: E78]
+      placed.push(f.key);
+    } catch (e: any) {
+      if (e?.code === 'EEXIST') return LOST;
+      throw fail('CA_WRITE', 'CA 개인키를 제자리에 두지 못했습니다', f.key);
+    }
+    try {
+      io.link(tmp.cert, f.cert);
+      placed.push(f.cert);
+    } catch {
+      throw fail('CA_WRITE', 'CA 인증서를 제자리에 두지 못했습니다', f.cert);
+    }
+    return ca;
+  } catch (e) {
+    for (const p of placed) fs.rmSync(p, { force: true }); // 사례 28: 반쪽 CA를 남기지 않는다
+    throw e;
+  } finally {
+    fs.rmSync(tmp.key, { force: true });
+    fs.rmSync(tmp.cert, { force: true });
+  }
+}
+
+// CA 파일 자리의 상태. 링크·정션은 따라가지 않는다(사례 35)
+function kind(p: string): 'none' | 'file' | 'other' {
+  const st = fs.lstatSync(p, { throwIfNoEntry: false });
+  if (!st) return 'none';
+  return st.isFile() && !st.isSymbolicLink() ? 'file' : 'other';
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function loadOrCreateCA(
+  dir: string,
+  opts: { now?: Date; onWarning?: (msg: string) => void; io?: Partial<CAIO> } = {},
+): Promise<CA> {
   const abs = checkDir(dir);
   const f = { cert: path.join(abs, CERT_FILE), key: path.join(abs, KEY_FILE) };
-  const has = [fs.existsSync(f.cert), fs.existsSync(f.key)];
-  if (!has[0] && !has[1]) return create(f, abs);
-  // 결정 1(사용자): 한쪽만 있으면 멈춘다. 없는 쪽을 새로 만들면 짝이 맞지 않는 CA가 된다
-  if (!has[0] || !has[1]) throw new CAError('CA_INCOMPLETE', 'CA 인증서와 개인키 중 한쪽만 있습니다', has[0] ? f.key : f.cert);
-  return load(f, opts.now ?? new Date(), opts.onWarning ?? ((m) => console.warn(m)));
+  const io = { ...defaultIO, ...opts.io };
+  const finish = () => load(f, opts.now ?? new Date(), opts.onWarning ?? ((m) => console.warn(m)));
+  // 한쪽만 있을 때는 다른 호출이 만드는 중일 수 있어 잠깐 기다린다(키 배치와 인증서 배치 사이). 그래도 한쪽이면 결정 1대로 멈춘다
+  const settle = async (ms: number) => {
+    for (const end = Date.now() + ms; ; await sleep(20)) {
+      const k = [kind(f.cert), kind(f.key)];
+      const other = k.indexOf('other');
+      if (other >= 0) throw new CAError('CA_NOT_FILE', 'CA 파일 자리에 일반 파일이 아닌 것(링크·정션·폴더)이 있습니다', other === 0 ? f.cert : f.key);
+      if (k[0] === k[1] || Date.now() >= end) return k;
+    }
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const [cert, key] = await settle(attempt === 0 ? 500 : 2000);
+    if (cert === 'file' && key === 'file') return finish();
+    // 결정 1(사용자): 한쪽만 있으면 멈춘다. 없는 쪽을 새로 만들면 짝이 맞지 않는 CA가 된다
+    if (cert !== key) throw new CAError('CA_INCOMPLETE', 'CA 인증서와 개인키 중 한쪽만 있습니다', cert === 'file' ? f.key : f.cert);
+    const made = await place(f, abs, await makeCA(abs), io);
+    if (made !== LOST) return made;
+    // 졌다: 이긴 쪽이 인증서까지 놓기를 기다렸다가 그것을 읽는다. 이긴 쪽이 되돌렸으면(둘 다 없음) 한 번 더 만든다
+  }
+  throw new CAError('CA_INCOMPLETE', 'CA를 만드는 다른 호출이 끝나지 않았습니다', abs);
 }
