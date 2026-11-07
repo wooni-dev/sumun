@@ -27,24 +27,56 @@ function rawPath(target: string): string {
   return rest.startsWith('/') ? rest : `/${rest}`;
 }
 
+type Rejection = { status: number; message: string };
+const bad = (message: string): Rejection => ({ status: 400, message: `400 Bad Request: ${message}` });
+
+// [PRX-1b] 요청 대상(URL) 검사. Node가 막지 않는 것만 여기서 막는다 (이미 막히는 것은 PRX-1b-regression.test.ts)
+function validateTarget(target: string): { url: URL } | Rejection {
+  // origin-form(GET /x)은 웹페이지의 fetch나 DNS 리바인딩이 보낼 수 있는 형태다. Host를 믿고 중계하지 않는다 (A11, A12)
+  const authority = target.match(/^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i)?.[1];
+  if (authority === undefined) return bad('이 프록시는 absolute-form 요청(GET http://...)만 받습니다.');
+  // "http:///path"를 WHATWG URL은 호스트 "path"로 해석한다 [확인됨: 실측]. 원문의 authority에서 호스트가 비었는지 직접 본다 (C2)
+  if (!authority.replace(/^.*@/, '').replace(/:[^\]]*$/, '')) return bad('요청 URL에 호스트가 없습니다.');
+
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return bad('요청 URL을 해석할 수 없습니다.');
+  }
+  // https를 평문으로 내려 보내면 다운그레이드다. HTTPS는 CONNECT 터널(TLS 단계)로만 다룬다 (C4)
+  if (url.protocol === 'https:') return { status: 501, message: '501 Not Implemented: HTTPS는 아직 지원하지 않습니다.' };
+  if (url.protocol !== 'http:' || !url.hostname) return bad('http:// 요청만 지원합니다.');
+  if (url.port === '0') return bad('포트 0으로는 연결할 수 없습니다.'); // (C5)
+  return { url };
+}
+
+// [PRX-1b] Host 헤더 검사 — RFC 9112 3.2: 여러 개이거나 값이 잘못되면 400 (MUST). Node는 막지 않는다 [확인됨] (C16)
+// 이 프록시는 Host를 요청 URL로 다시 쓰지만(C14), 해석이 갈리는 요청 자체를 받지 않는 게 안전하다.
+function validateHost(req: http.IncomingMessage): Rejection | undefined {
+  const values = req.rawHeaders.filter((_, i) => i % 2 === 0 && req.rawHeaders[i].toLowerCase() === 'host').length;
+  if (values > 1) return bad('Host 헤더가 여러 개입니다.');
+  const host = req.headers.host;
+  if (host !== undefined && /[,\s]/.test(host.trim())) return bad('Host 헤더 값이 올바르지 않습니다.');
+}
+
+// [PRX-1b] 본문 경계 검사 — RFC 9112 6.1: HTTP/1.0 메시지의 Transfer-Encoding은 잘못된 메시지다.
+// Node는 그대로 받아들인다 [확인됨]. 경계 해석이 갈리면 요청 스머글링의 재료가 된다 (D5)
+function validateFraming(req: http.IncomingMessage): Rejection | undefined {
+  if (req.httpVersion === '1.0' && req.headers['transfer-encoding'] !== undefined) return bad('HTTP/1.0 요청에는 Transfer-Encoding을 쓸 수 없습니다.');
+}
+
 export async function startProxy({ port = 8080 }: { port?: number } = {}) {
   const server = http.createServer();
   let selfPort = 0;
 
   server.on('request', (req, res) => {
     const target = req.url ?? '';
-    // origin-form(GET /x)은 웹페이지의 fetch나 DNS 리바인딩이 보낼 수 있는 형태다. Host를 믿고 중계하지 않는다 (A11, A12)
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) return reply(res, 400, '400 Bad Request: 이 프록시는 absolute-form 요청(GET http://...)만 받습니다.');
-
-    let url: URL;
-    try {
-      url = new URL(target);
-    } catch {
-      return reply(res, 400, '400 Bad Request: 요청 URL을 해석할 수 없습니다.');
-    }
-    // https를 평문으로 내려 보내면 다운그레이드다. HTTPS는 CONNECT 터널(TLS 단계)로만 다룬다 (C4)
-    if (url.protocol === 'https:') return reply(res, 501, '501 Not Implemented: HTTPS는 아직 지원하지 않습니다.');
-    if (url.protocol !== 'http:' || !url.hostname) return reply(res, 400, '400 Bad Request: http:// 요청만 지원합니다.');
+    const rejected = validateHost(req) ?? validateFraming(req);
+    if (rejected) return reply(res, rejected.status, rejected.message);
+    const checked = validateTarget(target);
+    if ('status' in checked) return reply(res, checked.status, checked.message);
+    const url = checked.url;
 
     const port = url.port ? Number(url.port) : 80;
     // 자기 자신으로 보내면 끝없이 자신에게 요청을 보내다 자원이 바닥난다 (B1, B2). 주소로 못 잡은 루프는 Via로 잡는다 (B4)
