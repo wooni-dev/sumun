@@ -158,6 +158,20 @@
 - 계획과 달라진 점: D5는 Host 검사가 아니라 본문 경계 검사라 함수 `validateFraming()`을 따로 뒀다. D15는 Node가 이미 막아서 서버 옵션 변경이 필요 없어졌다.
 - [PRX-1b] 완료: 71eb378..(문서 커밋).
 
+### [PRX-1c] 계획
+- 미확인 항목(O13): 세 항목 모두 세션 밖 조건 필요, 변화 없음.
+- 사례: prx1-cases.md 배정 "1c". A10(포트 값 검사)은 사용자 설정 검사라 CLI 단계로 옮긴다(테스트는 임의 포트 0을 써야 함).
+- 한 줄 보고: 목표 = 목적지 쪽 이상과 견고성. 이미 되는 것과 새로 필요한 것을 실측으로 나눈다 / 범위 =
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `upstreamTimeoutMs`(목적지 무응답 → 504), `headersTimeoutMs`(느린 헤더 → 408, Node의 `headersTimeout`·`connectionsCheckingInterval` 설정) / `'request'` 처리기의 목적지 요청에 타임아웃 / 서버·목적지의 `'upgrade'` 처리(전환하지 않음) / 루프 검사를 함수 `isSelf(url)`로 분리(필요하면 루프백 범위로 넓힘)
+  - 새 `test/prx/_raw-upstream.ts`(원시 바이트로 응답하는 목적지: 함수 `startRawUpstream`), 새 `test/prx/PRX-1c.test.ts`(새 동작), 새 `test/prx/PRX-1c-regression.test.ts`(이미 되는 것)
+  - 새 `scripts/probe/prx1c-stream.mjs`(대용량 스트리밍 메모리 실측, B9), A9(0.0.0.0:P 점유 중 시작)도 실측으로 기록
+  - `docs/ai/purpose-tree.md`, `docs/ai/prx1-cases.md`(A10 이동), `docs/for-me/PRX-1c.md`
+  - 하지 않을 것 = CLI(A10), Flow 기록(PRX-2)
+- 예상 [추측]:
+  - E25(이미 됨): A2(LAN IP 192.168.35.181로 접속 → 거부), A7·A8(포트 점유 → startProxy 실패), B2 나머지(127.1, 2130706433, 0x7f000001은 URL이 127.0.0.1로 정규화 → 508 / 0.0.0.0, 127.0.0.2 → 502), B3(`localhost.` → 자기에게 닿지만 Via로 508), B7(목적지가 응답 도중 끊음 → 클라이언트 연결 끊김, 프록시 생존), B10(.invalid → 502), B11(깨진 목적지 응답 → 502), C11([::1] 목적지 → 정상, Host [::1]:P), D11(Expect: 100-continue), D12(HEAD·204·304에 본문 없음), D13(연결 종료로 끝나는 응답), D16(큰 응답 헤더 → 502), E9(chunked 응답의 경계 하나), E10, E11(keep-alive로 다른 목적지), E12(Set-Cookie 여러 줄 보존)
+  - E26(새 동작): B8(목적지 무응답 → 지금은 끝없이 기다림), D17(옵션이 없어 짧은 시간으로 시험 불가), E7(목적지가 101을 보내면 → 지금 동작 모름, 502여야 함)
+  - E27(모름 → 실측): A9(다른 프로세스가 0.0.0.0:P를 쓰는 중 127.0.0.1:P로 시작), B6(NODE_USE_ENV_PROXY=1 + HTTP_PROXY가 이 프록시를 가리킬 때 agent:false 요청이 환경 프록시를 따르는지)
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
