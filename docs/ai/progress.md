@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-T] 완료(main에 병합). 다음은 [TLS-1] CONNECT 터널.
+- 작업: [TLS-1] 완료(main에 병합). 다음: TLS-1b(터널 견고성) → TLS-2(루트 CA, 시작 전 사용자 확인).
 - 다음 할 일: TLS 큰 단위 — TLS-1(CONNECT 터널) → TLS-2(루트 CA) → TLS-3 → TLS-4. 진행 상황은 `npm test`의 "큰 단위 대기 TLS" 줄. TLS-2(루트 CA)는 개인키 보관 위치와 Windows 인증서 저장소 등록을 사용자에게 먼저 설명·확인(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
@@ -408,6 +408,35 @@
   - E55 일치: `npm test` → 종료 코드 0, tests 368 / pass 366 / fail 0 / todo 2, "큰 단위 대기(todo) TLS: 2개, 그중 실패 2개", `.claude/state/test-streak.json`에 TLS-T 키 0개, last-run.json `full: true, failed: 0, exemptFailed: 2`.
   - 문서를 쓸 때 줄 번호 두 개를 짐작으로 적었다가 `grep -n`으로 확인해 고쳤다(O34 지침이 실제로 잡음).
 - [TLS-T] 완료: 59f12b6..(문서 커밋). 다음: TLS-1(CONNECT 터널, 복호화 없이 통과) — 보안 사례 먼저(O10).
+
+### [TLS-1] 계획
+- 미확인 항목(O13): 변화 없음.
+- 보안 사례(O10): `docs/ai/tls1-cases.md`(검토 에이전트 40개 + 결정 12개). 크기 때문에 TLS-1과 TLS-1b(견고성)로 나눴다(목적 나무에 TLS-1b 추가). 결정은 추천으로 진행, TLS 보고서에 올린다.
+- 작업자 추가 결정 0: 터널은 `startProxy({ tunnel: true })`일 때만 켠다. 커밋된 `test/prx/PRX-1.test.ts`의 C18("CONNECT는 501")을 고치지 않기 위해서이고, 그 테스트가 인터넷(example.com)에 연결하게 되는 것도 막는다. `npm start`(src/index.ts)는 켠다.
+- 한 줄 보고: 목표 = CONNECT를 복호화 없이 안전하게 통과시키고 터널마다 기록 / 범위 =
+  - 새 `src/tls/tunnel.ts`: 함수 `parseConnectTarget(target)`(→ `{ host, port }` 또는 거절 — P1~P9), `isLoopTarget(addresses, port, selfPort)`(Q1, Q5), `openTunnel(...)`(목적지 연결 → 200 → head 전달 → 양방향 pipe, 바이트 세기, 실패 분류, 기록 1번)
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `tunnel`, `lookup`(테스트용 이름 해석 주입), `'connect'` 처리기(옵션이 없으면 지금처럼 501), Host 중복·본문 헤더 검사(R2, P10)
+  - `src/flow/flow.ts`: 타입 `Flow`에 `tunnel?: { bytesUp, bytesDown, address }`
+  - `src/cli.ts`: `formatSummary()`가 터널 기록을 `CONNECT host:port tunnel ↑N ↓M`처럼 보이게(ASCII로)
+  - `src/index.ts`: `startProxy({ tunnel: true })`
+  - 새 `test/tls/TLS-1.test.ts`(새 동작), 새 `test/tls/TLS-1-regression.test.ts`(구현 전에도 통과하는 것), 도우미는 파일 안에
+  - `docs/ai/purpose-tree.md`, `docs/ai/tls1-cases.md`, `docs/ai/map.md`, `docs/for-me/TLS-1.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 배정 "1b", 복호화(TLS-4), CA(TLS-2)
+- 예상 [추측] (판정 기준 포함):
+  - E56: stub(tunnel.ts의 함수가 undefined를 돌려줌, server.ts는 그대로 → CONNECT 501)에서 새 동작 테스트는 모두 assertion으로 실패한다. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E57: 거절 사례 중 일부(P6의 NUL·공백, P9의 16KB 초과)는 Node 파서가 먼저 막아 구현 전에도 400/431이다 → 회귀 파일로 간다. 판정: red에서 구현 전 통과가 나오면 회귀로 옮기고 개수를 기록.
+  - E58: Node의 `'connect'` 이벤트는 CONNECT와 같은 write로 온 데이터를 `head`로 넘긴다(R1). 판정: head 길이 > 0이면 일치. 실측 명령은 실측 커밋에.
+  - E59: 실제 curl(O31): `curl -x http://127.0.0.1:P -k https://127.0.0.1:<로컬 HTTPS>/` 가 터널을 통해 200을 받는다(-k: 로컬 시험 서버 인증서를 curl이 모르므로). 판정: 200.
+
+- 실측 (명령 원문):
+  - E58 일치(실측 커밋 6d1ea87): `node scripts/probe/tls1-head.mjs` → head="EARLY-BYTES"(11), 그 뒤 소켓에서 받은 것 "".
+  - E56 일치: stub에서 `npm run test:red -- test/tls/TLS-1.test.ts` → 57개 모두 실패, assertion 57, 오류 0. 처음 실행은 5분이 지나도 끝나지 않았다 → `node --test --test-timeout=15000`으로 원인을 찾음: R5c 테스트 앞부분에 finally가 없어 실패 시 목적지 서버가 남음(테스트 결함, 커밋 전 수정, 기대값 변경 없음).
+  - E57 일치: `node --test test/tls/TLS-1-regression.test.ts` → 구현 전 5/5(Node 파서가 깨진 요청줄을 400·431로 막음).
+  - tunnel.ts만 있는 시점(다른 네 파일을 `git show HEAD:<파일>`로 잠시 되돌림): TLS-1 테스트 41/57. 연결 뒤 `npm test` → 428 통과, 실패 0, 대기 TLS 2(f5b024e).
+  - E59 일치: `node scripts/probe/tls1-curl.mjs` → curl "secure /hello?q=1 [200]", 자기 자신 [000](508), 요약 줄에 경로·쿼리 0번.
+  - hook 기록(O25): 명령 안에 테스트 경로와 리다이렉트가 함께 있어 막힘 → 의도한 보수적 동작. 실행 명령을 스크립트 파일로 옮겨 진행.
+- 계획과 달라진 점: 결정 0(tunnel 옵션)은 계획에 적은 대로. close()에서 열린 터널 소켓을 닫는 것(사례 R13 일부)을 함께 넣었다 — 테스트 프로세스가 끝나게 하려면 필요했다. R13의 "정해진 시간 안에 종료" 테스트는 TLS-1b에서.
+- [TLS-1] 완료: 79a641d..(문서 커밋). 다음: TLS-1b(견고성) 또는 TLS-2(루트 CA — 사용자 확인 필요).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

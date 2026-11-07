@@ -13,6 +13,7 @@ import net from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
 import { createBodyCapture, headerPairs, rawPath, parseTarget, type Flow, type FlowStart } from '../flow/flow.ts';
+import { openTunnel, parseConnectTarget, defaultLookup, type Lookup } from '../tls/tunnel.ts';
 
 const BIND_HOST = '127.0.0.1';
 const SELF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -99,6 +100,8 @@ export async function startProxy({
   onFlow, // [PRX-2] 요청마다 완료(또는 실패) 때 한 번 기록(Flow)을 받는다. 없으면 기록하지 않는다
   onFlowStart, // [PRX-3] 결정 2: 요청을 받자마자 한 번 시작 알림을 받는다(같은 요청의 Flow와 id가 같다). 실시간 목록용
   upstreamBodyTimeoutMs = 300_000, // [PRX-3] 결정 4: 응답 헤더를 받은 뒤에는 이 시간(5분) 동안 아무것도 오지 않을 때만 끊는다(SSE·롱폴)
+  tunnel = false, // [TLS-1] CONNECT를 복호화 없이 통과시킬까. 기본은 꺼짐(501) — npm start(src/index.ts)가 켠다
+  lookup = defaultLookup, // [TLS-1] 이름 해석. 테스트에서 인터넷에 묻지 않게 바꿔 끼운다
 }: {
   port?: number;
   upstreamTimeoutMs?: number;
@@ -106,6 +109,8 @@ export async function startProxy({
   onFlow?: (flow: Flow) => unknown;
   onFlowStart?: (start: FlowStart) => unknown;
   upstreamBodyTimeoutMs?: number;
+  tunnel?: boolean;
+  lookup?: Lookup;
 } = {}) {
   if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
   if (onFlowStart !== undefined && typeof onFlowStart !== 'function') throw new TypeError('onFlowStart는 함수여야 합니다.');
@@ -222,10 +227,48 @@ export async function startProxy({
   });
 
   // CONNECT(HTTPS 터널)는 TLS 단계에서 만든다. 처리기가 없으면 Node는 응답 없이 연결을 끊으므로(실측), 501을 직접 보낸다 (C18)
-  server.on('connect', (_req, socket: Socket) => {
+  // [TLS-1] 열린 터널의 소켓. http 서버의 관리 밖이라 closeAllConnections()가 닫지 않는다 → close()에서 직접 닫는다
+  const tunnels = new Set<Socket>();
+  server.on('connect', (req, socket: Socket, head: Buffer) => {
     // 이 소켓은 http 서버의 관리에서 벗어난 원시 소켓이다. 클라이언트가 응답을 받자마자 연결을 리셋하면(curl이 실제로 그렇게 함)
     // 'error'가 나는데, 처리기가 없으면 Node가 프로세스를 종료한다 [확인됨: PRX-1 실측]. 여기서는 정리만 하면 된다.
     socket.on('error', () => socket.destroy());
+    if (tunnel) {
+      const startedAt = Date.now();
+      const t0 = performance.now();
+      const id = nextFlowId++;
+      const target = req.url ?? '';
+      const p = parseConnectTarget(target);
+      const head0 = () => ({
+        method: 'CONNECT',
+        url: target,
+        httpVersion: req.httpVersion,
+        headers: headerPairs(req.rawHeaders),
+        target: 'error' in p ? undefined : { scheme: 'https' as const, host: p.host, port: p.port, path: '' },
+      });
+      if (onFlowStart) emitFlow(onFlowStart, { id, startedAt, request: head0() });
+      // Host 중복(PRX-1b C16)과 이 프록시의 Via(루프 두 번째 방어선)는 HTTP와 같은 규칙
+      const rejected = hasOwnVia(req.headers.via) ? { ...LOOP, code: 'loop' as const } : (() => {
+        const r = validateHost(req);
+        return r && { status: r.status, message: r.message.replace(/^400 Bad Request: /, ''), code: 'rejected' as const };
+      })();
+      void openTunnel({
+        req,
+        socket,
+        head,
+        selfPort,
+        lookup,
+        connectTimeoutMs: upstreamTimeoutMs,
+        viaId: VIA_ID,
+        rejected: rejected ? { ...rejected, message: rejected.message.replace(/^508 Loop Detected: /, '') } : undefined,
+        track: (s) => (tunnels.add(s), s.once('close', () => tunnels.delete(s))),
+        finish: (end) => {
+          if (!onFlow) return;
+          emitFlow(onFlow, { id, startedAt, durationMs: performance.now() - t0, request: { ...head0(), body: Buffer.allocUnsafeSlow(0), bodySize: 0, bodyTruncated: false }, ...end });
+        },
+      });
+      return;
+    }
     const body = '501 Not Implemented: HTTPS(CONNECT)는 아직 지원하지 않습니다.\n';
     socket.end(
       `HTTP/1.1 501 Not Implemented\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(body)}\r\nvia: ${VIA_ID}\r\nconnection: close\r\n\r\n${body}`,
@@ -241,6 +284,6 @@ export async function startProxy({
   return {
     port: selfPort,
     address: () => server.address() as AddressInfo,
-    close: () => new Promise<void>((resolve) => (server.closeAllConnections(), server.close(() => resolve()))),
+    close: () => new Promise<void>((resolve) => (server.closeAllConnections(), tunnels.forEach((s) => s.destroy()), server.close(() => resolve()))),
   };
 }
