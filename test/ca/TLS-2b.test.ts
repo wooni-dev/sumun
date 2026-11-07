@@ -216,7 +216,9 @@ test('B38: Users가 읽을 수 있게 상속하는 폴더에 만들어도 키 �
   assert.equal(key.protected, true, '상속 차단(D:P)');
   assert.deepEqual(key.aces.map((a) => a.sid), [ME], `ACE: ${JSON.stringify(key.aces)}`);
   assert.equal(key.aces[0].type, 'A');
-  for (const n of ['Users', 'Everyone', 'Authenticated Users', 'SYSTEM', 'Administrators']) assert.equal(key.names.includes(n), false, n);
+  const grants = key.names.replace(files(dir).key, ''); // icacls 출력 첫 줄의 파일 경로(C:\Users\…)를 빼고 권한 줄만 본다
+  assert.ok(grants.includes(':(F)'), '전제: 권한 줄이 남아 있다');
+  for (const n of ['Users', 'Everyone', 'Authenticated Users', 'SYSTEM', 'Administrators']) assert.equal(grants.includes(n), false, n);
   assert.ok(aclOf(files(dir).cert).aces.some((a) => a.sid === 'S-1-5-32-545'), '인증서는 공개 정보라 상속 그대로');
 });
 
