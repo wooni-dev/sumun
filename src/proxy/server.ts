@@ -13,7 +13,7 @@ import net from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
 import { createBodyCapture, headerPairs, rawPath, parseTarget, type Flow, type FlowStart } from '../flow/flow.ts';
-import { openTunnel, parseConnectTarget, defaultLookup, type Lookup } from '../tls/tunnel.ts';
+import { openTunnel, parseConnectTarget, defaultLookup, defaultConnect, type Lookup, type ConnectUpstream } from '../tls/tunnel.ts';
 
 const BIND_HOST = '127.0.0.1';
 const SELF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -102,6 +102,7 @@ export async function startProxy({
   upstreamBodyTimeoutMs = 300_000, // [PRX-3] 결정 4: 응답 헤더를 받은 뒤에는 이 시간(5분) 동안 아무것도 오지 않을 때만 끊는다(SSE·롱폴)
   tunnel = false, // [TLS-1] CONNECT를 복호화 없이 통과시킬까. 기본은 꺼짐(501) — npm start(src/index.ts)가 켠다
   lookup = defaultLookup, // [TLS-1] 이름 해석. 테스트에서 인터넷에 묻지 않게 바꿔 끼운다
+  connectUpstream = defaultConnect, // [TLS-1b] 터널의 목적지 TCP 연결. 테스트에서 연결이 끝나지 않는 목적지를 흉내 낸다(R8)
 }: {
   port?: number;
   upstreamTimeoutMs?: number;
@@ -111,6 +112,7 @@ export async function startProxy({
   upstreamBodyTimeoutMs?: number;
   tunnel?: boolean;
   lookup?: Lookup;
+  connectUpstream?: ConnectUpstream;
 } = {}) {
   if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
   if (onFlowStart !== undefined && typeof onFlowStart !== 'function') throw new TypeError('onFlowStart는 함수여야 합니다.');
@@ -258,6 +260,7 @@ export async function startProxy({
         head,
         selfPort,
         lookup,
+        connect: connectUpstream,
         connectTimeoutMs: upstreamTimeoutMs,
         viaId: VIA_ID,
         rejected: rejected ? { ...rejected, message: rejected.message.replace(/^508 Loop Detected: /, '') } : undefined,

@@ -22,7 +22,7 @@
 | 모듈 | 역할 한 줄 | 태그 | 주의 사항 |
 |---|---|---|---|
 | `src/proxy/` | 평문 HTTP 요청을 받아 실제 서버로 전달하고 응답을 돌려준다 | #진입점 #외부:실제서버 | 127.0.0.1에만 바인딩한다. 그렇지 않으면 누구나 쓰는 열린 프록시가 된다 |
-| `src/tls/` | [TLS-1] `tunnel.ts`: CONNECT 불투명 터널(`startProxy({ tunnel: true })`, 대상은 글자 검사·이름은 한 번만 해석·자기 자신 508, 기록은 바이트 수만). 이후 CONNECT 터널을 처리하고, 가짜 인증서로 TLS를 종료한 뒤 복호화한 요청을 `proxy`의 처리 흐름으로 넘긴다 | #보안핵심 | ALPN은 `http/1.1`만 제공한다(HTTP/2는 범위 밖) |
+| `src/tls/` | [TLS-1] `tunnel.ts`: CONNECT 불투명 터널(`startProxy({ tunnel: true })`, 대상은 글자 검사·이름은 한 번만 해석·자기 자신 508, 기록은 바이트 수만). [TLS-1b] 목적지 연결은 반쪽 닫기 허용(FIN을 그대로 전달), 연결 함수는 `connectUpstream` 옵션으로 바꿔 끼움(테스트용). 이후 CONNECT 터널을 처리하고, 가짜 인증서로 TLS를 종료한 뒤 복호화한 요청을 `proxy`의 처리 흐름으로 넘긴다 | #보안핵심 | ALPN은 `http/1.1`만 제공한다(HTTP/2는 범위 밖) |
 | `src/ca/` | 루트 CA를 생성·보관하고 호스트별 인증서를 발급한다 | #보안핵심 #공유 #외부:node-forge | ⚠ 개인키는 저장소 밖에 둔다. 암호 연산은 직접 구현하지 않는다 |
 | `src/flow/` | 요청·응답을 기록 객체 `Flow`로 바꾼다. 프록시는 `startProxy({ onFlow })`로 요청마다 완료 때 1번 넘긴다 (PRX-2) | #공유 ⚠ proxy, tls, store, dashboard가 모두 의존 | 쿠키·토큰이 원본 그대로 들어 있다 → 출력·디스크 금지(prx2-cases.md F). `response`는 목적지가 보낸 것만, 프록시가 만든 응답은 `error.status`. 본문은 각 1MiB까지(`bodySize`는 전체). [PRX-3] 시작 알림 `onFlowStart`(같은 id), `request.target = { scheme, host, port, path }`(호스트 필터는 이것으로), 실패 코드 `bad-response`/`unreachable` 구분 |
 | `src/store/` | `Flow`를 메모리에 보관하고 새 기록이 생기면 이벤트를 낸다 | #공유 | 본문이 큰 경우 메모리 상한이 필요하다 [추측] |

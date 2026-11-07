@@ -3,9 +3,9 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: 세션 종료(2026-11-07). 사용자가 "다음 세션에서 이어서"하기로 함. main = 5fcce49 이후 이 기록 커밋. `npm test` 428 통과·실패 0·큰 단위 대기 TLS 2(정상 — TLS-4가 `src/tls/mitm.ts`를 만들면 실제 검사가 됨).
+- 작업: [TLS-1b] 완료(main에 병합). `npm test` 438개 중 436 통과·실패 0·큰 단위 대기 TLS 2.
 - 다음 할 일(순서):
-  1. [TLS-1b] 터널 견고성 — `docs/ai/tls1-cases.md` 배정 "1b": R6 half-close(FIN 전달), R7 양방향 50~100MB·느린 클라이언트(메모리), R8 연결 타임아웃 504(연결 함수 주입 필요), R12 동시 터널 300개, R13 열린 터널이 있을 때 close()가 정해진 시간 안에 끝남. 정책 결정 없음. 보안 사례는 이미 받음(O10).
+  1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. [TLS-2] 루트 CA 생성·보관 — 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%APPDATA%\sumun\ca\`(저장소 밖, 커밋 금지), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
   3. [TLS-3] 호스트별 인증서 즉석 발급 → [TLS-4] TLS 종료 후 복호화한 요청 기록(`startProxy({ ca, upstreamCA })`, 목적지 인증서 검증 끄지 않음, 불신 시 `bad-certificate` 502, 대기 파일 `src/tls/mitm.ts`를 만든다). TLS-4에서 실제 curl 실측(이 PC의 curl은 Schannel).
   4. TLS 큰 단위 끝: CLAUDE.md "큰 단위" 절차(전체 테스트 → 감사 → 목표 문서만 보는 검토 에이전트 → `docs/for-me/TLS-report.md` → `check-method --id TLS`의 big-unit-todo 포함).
@@ -444,6 +444,44 @@
 - 계획과 달라진 점: 결정 0(tunnel 옵션)은 계획에 적은 대로. close()에서 열린 터널 소켓을 닫는 것(사례 R13 일부)을 함께 넣었다 — 테스트 프로세스가 끝나게 하려면 필요했다. R13의 "정해진 시간 안에 종료" 테스트는 TLS-1b에서.
 - [TLS-1] 완료: 79a641d..(문서 커밋). 다음: TLS-1b(견고성) 또는 TLS-2(루트 CA — 사용자 확인 필요).
 
+### [TLS-1b] 계획
+- 새 세션(2026-11-07) 대조: `git log --oneline -15`가 기록과 같음, `npm test` → tests 430 / pass 428 / fail 0 / todo 2, "큰 단위 대기(todo) TLS: 2개, 그중 실패 2개" [확인됨].
+- 미확인 항목(O13): method-auditor 이름 호출 — 세션 안에서 확인, 이번에도 Agent 종류 목록에 없음 [확인됨]. 나머지(Read 규칙, on-prompt.mjs, Ctrl+C, EACCES)는 세션 밖 조건 필요, 변화 없음.
+- 보안 사례(O10): TLS-1 계획 때 받은 `docs/ai/tls1-cases.md`의 배정 "1b"(R6, R7, R8, R12, R13). 새로 받지 않는다(사례는 이미 있고 정책 결정이 없다).
+- 한 줄 보고: 목표 = CONNECT 터널을 반쪽 닫기·대용량·연결 타임아웃·동시 300개·종료에서 견고하게 / 범위 =
+  - `src/tls/tunnel.ts`: `openTunnel()` — 목적지 연결을 반쪽 닫기 허용(`allowHalfOpen`)으로(R6), 연결 함수를 인자로 받음(R8)
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `connectUpstream`(테스트용 TCP 연결 함수 주입, 기본 `net.connect`) → `openTunnel`에 전달
+  - 새 `test/tls/TLS-1b.test.ts`(새 동작), 새 `test/tls/TLS-1b-regression.test.ts`(구현 전에도 통과하는 것), 도우미는 파일 안에
+  - 새 `scripts/probe/tls1b-halfclose.mjs`(구현 전 반쪽 닫기·역압 실측), 새 `scripts/probe/tls1b-curl.mjs`(실제 curl로 큰 다운로드·메모리, O31)
+  - `docs/ai/purpose-tree.md`, `docs/ai/tls1-cases.md`, `docs/ai/map.md`, `docs/for-me/TLS-1b.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = TLS-2(루트 CA), 결정 0~12 변경, 동시 터널 상한(결정 8), 복호화
+- 예상 [추측] (판정 기준 포함):
+  - E60 R6a(클라이언트가 먼저 쓰기를 닫음): 클라이언트가 보내고 `end()` → 목적지가 FIN을 받은 뒤 답을 보내고 닫음 → 클라이언트가 답을 다 받는다. **구현 전에도 통과**(http 서버 소켓은 반쪽 닫기를 허용하고 pipe가 FIN을 넘긴다). 판정: 답 바이트가 전부 오고 기록 error 없음이면 일치.
+  - E61 R6b(목적지가 먼저 쓰기를 닫음): 목적지가 인사를 보내고 `end()` → 그 뒤 클라이언트가 보낸 데이터를 목적지가 받는다. **구현 전에는 실패**(`net.connect` 기본값은 반쪽 닫기를 허용하지 않아 FIN을 받으면 프록시가 목적지 쪽 쓰기도 닫는다). 판정: 목적지가 받은 바이트 0 또는 기록 error가 있으면 일치.
+  - E62 R7 양방향 50MB 동시: 양쪽 sha256이 같다. 구현 전 통과. 판정: 해시 같음.
+  - E63 R7 느린 클라이언트: 클라이언트가 읽기를 멈춘 2초 동안 "목적지가 써 넣은 양 − 클라이언트가 받은 양" ≤ 16MB(OS 버퍼 포함). 구현 전 통과(pipe 역압). 판정: 16MB 이하면 일치. 실측 값을 보고 테스트 상한을 정한다.
+  - E64 R12 동시 300개: 터널마다 다른 바이트를 보내고 자기 것만 돌려받음, 기록 300개의 바이트 수가 각각 맞음. 구현 전 통과. 판정: 300개 모두 맞고 10초 안.
+  - E65 R13: 열린 터널 20개가 있는 채로 `close()` → 1000ms 안에 끝나고 클라이언트 20개가 모두 닫힘. 구현 전 통과(TLS-1에서 close()가 터널 소켓을 닫게 함). 판정: 1초 안.
+  - E66 R8: `connectUpstream`으로 연결이 끝나지 않는 소켓을 주면 `upstreamTimeoutMs`(300ms) 뒤 504, 기록 `{ by: 'upstream', code: 'timeout', status: 504 }`, 주입한 소켓이 destroy됨. stub(옵션 무시 → 실제 연결)에서는 assertion 실패. 판정: red에서 assertion 실패, 오류 0.
+  - E67 실제 curl(O31): npm start 구성의 터널로 로컬 HTTPS에서 100MB를 받으면 받은 바이트 = 100MB, 프록시 프로세스 최대 RSS − 시작 RSS ≤ 64MB. 판정: 두 가지 모두면 일치.
+  - E68 실제 curl R8: 응답하지 않는 주소(10.255.255.1:443)로 터널 → 연결 타임아웃 뒤 504. 환경 의존(네트워크가 바로 거절하면 502). 판정: 504면 일치, 502면 환경 기록하고 테스트(주입)로 대신한다.
+
+- 실측 (명령 원문, 결과 전문은 각 커밋 메시지):
+  - E60 일치, E61 일치, E63 일치(8bcf71e): `node scripts/probe/tls1b-halfclose.mjs` → R6a 답 "got:hello" / R6b 목적지가 받은 것 "" / 멈춘 동안 쌓인 양 1.3MB(→ 테스트 상한 8MB).
+  - 예상 밖(범위 안 결함, 테스트 전에 발견): R6b에서 기록이 끝내 나오지 않음. `node scripts/probe/tls1b-leak.mjs` → 목적지 쪽이 스스로 닫히며 pipe가 풀려 클라이언트 쪽 소켓이 남는다. 테스트 R6b에 "기록 1개"를 넣고 구현에서 함께 고침(테스트 전 발견이라 O26의 기록·재현·수정 3커밋 대신 실측 → 테스트 → 구현 순서로).
+  - 예상 밖(환경): R12 초안이 터널 232부터 실패. `node scripts/probe/tls1b-concurrency.mjs 300 direct` → 프록시 없이도 232개만 연결, `node scripts/probe/tls1b-backlog.mjs` → backlog를 1024로 올려도 232(51464e9). 테스트는 50개씩 열고 300개를 모두 연 채로 검사(기대값 그대로, O36 기록은 d41a3a7).
+  - E64 일치(R12 300개, 563ms), E65 일치(R13 close() 62ms), E62 일치(50MB 양방향 sha256 같음): `node --test --test-timeout=30000 test/tls/TLS-1b-regression.test.ts` → 구현 전 5/5.
+  - E66 일치: `npm run test:red -- test/tls/TLS-1b.test.ts` → 3개 모두 assertion 실패, 오류 0.
+  - tunnel.ts만 있는 시점(server.ts를 `git show HEAD:src/proxy/server.ts`로 잠시 되돌림): TLS-1·TLS-1b 60개 중 45 통과. 연결 뒤 `npm test` → 438 / 436 통과 / 실패 0 / 대기 TLS 2(9a2b46e).
+  - E67 일치, E68 일치(565eee3): `node scripts/probe/tls1b-curl.mjs` → 다운로드·업로드 104857600바이트, 메모리 69 → 126MB(+57 ≤ 64), 10.255.255.1 → 2.0초 뒤 CONNECT 504·기록 timeout. `... 300` → 최대 151MB(본문 3배에 +22MB, 비례하지 않음).
+- hook 기록(O25):
+  - 커밋 전 테스트 파일을 셸 in-place 치환으로 고치려다 막힘 → 의도한 보수적 동작. Edit 도구로 고침.
+  - 테스트 커밋 명령(`cat > 메시지파일 <<EOF` + `git add test/...`)이 막힘 → 의도한 보수적 동작(한 명령 안에 리다이렉트와 테스트 경로 — TLS-1 때와 같은 규칙). 테스트 커밋 메시지에는 "본문 글자 때문"이라고 [추측]을 적었는데, 원인은 이것이 더 그럴듯하다 [추측]. 메시지를 Write 도구로 쓰고 커밋 명령을 따로 실행.
+  - 중간 상태 측정 명령(`git show ... > server.ts` + 테스트 실행)도 같은 이유로 막힘 → 의도한 보수적 동작. 명령을 나눔.
+- 계획과 달라진 점: 실측 커밋이 둘(8bcf71e, 51464e9)이 됐다. R12 테스트 절차를 환경 한계에 맞췄다. R6c(목적지가 FIN 뒤 완전히 끊으면 클라이언트도 닫기)를 검토했지만 뺐다 — 프록시는 쓰기 전에는 상대가 FIN만 보냈는지 완전히 끊었는지 알 수 없고, 반쪽 닫힌 상태를 그대로 비추는 것이 결정 6이다.
+- [TLS-1b] 완료: 2064e4d..7ce8f06 + 이 기록 커밋. 다음: TLS-2(루트 CA — 시작 전 사용자 확인).
+- `node scripts/check-method.mjs --id TLS-1b` → 11개 규칙 중 10 ✅, **message-format ❌**(8bcf71e, 51464e9, 8518b93, 565eee3) [확인됨]. 원인: "검증" 뒤에 괄호로 조건을 붙여 `- 검증(구현 전, …):`으로 썼고, 검사는 줄 머리 `- 검증:`을 요구한다(scripts/check-method.mjs의 badMsg). 왜·검증 내용은 들어 있다. 고치려면 브랜치 이력을 다시 써야 해서 문서·메시지에 적은 해시가 모두 틀어진다 → 고치지 않고 남긴다. 다음부터 `- 검증: (조건) …`으로 쓴다. 큰 단위(TLS) 감사에 넘길 항목.
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
@@ -455,6 +493,8 @@
 
 - ⚠ [INFRA-9 검토에서 발견, 범위 밖 — 사용자 보고] 테스트 코드가 `.claude/state/`(junit.xml, test-streak.json)에 직접 쓸 수 있다. hook은 도구 명령만 검사하고 `npm test`가 실행하는 코드는 보지 않는다. 멈춤 장치 전체를 무력화할 수 있다(infra9-cases.md 사례 12) [추측: 시험하지 않음]. 제안: 실행 전후 state 해시 비교 또는 state를 실행기만 쓰는 위치로 — 별도 작은 단위.
 - [INFRA-9 검토에서 발견, 범위 밖] `{ skip }`·`--test-skip-pattern`은 셈을 초기화한다(사례 13). 같은 이름 테스트가 셈을 섞는다(사례 17). 부모 테스트 실패가 junit에서 빠진다(검토자 실측).
+
+- ⚠ [TLS-1b 발견, 범위 밖 — 환경] 이 PC는 한순간에 몰린 TCP 연결을 약 232개만 받고 나머지는 ECONNREFUSED. 프록시의 대기 포트도 같다. backlog를 올려도 늘지 않는다 [확인됨: scripts/probe/tls1b-backlog.mjs] [추측: Windows 대기열 상한]. 브라우저는 한순간에 수백 개를 열지 않으므로 지금은 다루지 않는다.
 
 ## 시도하다 막힌 것
 (없음)

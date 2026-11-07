@@ -11,6 +11,9 @@ import type { Flow } from '../flow/flow.ts';
 
 export type Lookup = (host: string) => Promise<{ address: string; family: number }[]>;
 export const defaultLookup: Lookup = (host) => dns.promises.lookup(host, { all: true });
+// [TLS-1b] 목적지 TCP 연결 함수. 테스트에서 "연결이 끝나지 않는 목적지"를 흉내 내려고 바꿔 끼운다(사례 R8)
+export type ConnectUpstream = (o: { host: string; port: number; allowHalfOpen: boolean }) => Socket;
+export const defaultConnect: ConnectUpstream = (o) => net.connect(o);
 
 type Rejection = { error: string };
 const bad = (why: string): Rejection => ({ error: `CONNECT 대상이 올바르지 않습니다(${why}).` });
@@ -62,6 +65,7 @@ export async function openTunnel(o: {
   head: Buffer;
   selfPort: number;
   lookup: Lookup;
+  connect: ConnectUpstream;
   connectTimeoutMs: number;
   viaId: string;
   rejected?: { status: number; message: string; code: 'rejected' | 'loop' }; // 호출한 쪽이 먼저 거절한 경우(Host 중복 등)
@@ -112,7 +116,9 @@ export async function openTunnel(o: {
   if (isLoopTarget(addresses, port, o.selfPort)) return refuse(508, '요청이 이 프록시로 되돌아옵니다.', { by: 'proxy', code: 'loop', status: 508 });
 
   const address = addresses[0];
-  const up = net.connect({ host: address, port });
+  // 결정 6(사례 R6): 반쪽 닫기를 허용한다. 기본값(false)이면 목적지의 FIN을 받는 순간 목적지 쪽 쓰기도 닫혀서
+  // 클라이언트가 그 뒤 보낸 바이트가 목적지에 닿지 않고, pipe가 풀려 클라이언트 쪽 소켓과 기록이 남는다 [확인됨: scripts/probe/tls1b-leak.mjs]
+  const up = o.connect({ host: address, port, allowHalfOpen: true });
   upstream = up;
   o.track(up);
   let bytesUp = 0;
