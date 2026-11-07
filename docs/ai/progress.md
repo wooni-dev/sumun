@@ -80,10 +80,26 @@
   - 예상 밖 3: E13을 처음 시도할 때 확인 명령(`head ... test/infra/...`)을 같은 줄에 붙였더니 실행 전 검사에 걸렸다 → 명령을 나눴다.
 - [INFRA-5] 완료: 5254eb5..(문서 커밋), npm test 86/86. INFRA-3, INFRA-4 문서에 줄 번호를 보충했다(AUDIT-2 고칠 것).
 
+### [INFRA-6] 계획
+- 근거: AUDIT-2 보고서 2~4 승인(O10~O17) + INFRA-5 감사의 "고칠 것". 승인 상태는 이제 `docs/method-feedback.md` 한 곳에만 적는다(INFRA-5 감사 관찰).
+- 한 줄 보고: 목표 = 승인된 O10~O17을 규칙과 검사에 반영 / 범위(O11 형식) =
+  - `scripts/check-method.mjs`: `checkCommits()`에 규칙 `user-doc-lines`(O12: "먼저 볼 코드"에 `파일:줄`이 있는가) 추가, `plan-first`의 규칙 도입 전 작업은 ➖(O14). `loadCommits` 밖에서 문서 본문을 읽고 도입 시점을 판정한다
+  - `test/infra/check-method-doc.test.mjs`(새 동작), `test/infra/hooks-normal-regression-2.test.mjs`(회귀: INFRA-5 감사가 지적한 빠진 정상 명령 5개)
+  - `CLAUDE.md` 개발 방식 절(O10, O11, O13, O15, O17), `.claude/agents/method-auditor.md` 원칙 절(O16)
+  - `docs/method-feedback.md`, `docs/ai/progress.md`, `docs/for-me/INFRA-6.md`
+  - 하지 않을 것 = 새 관찰 O18~O21 반영(승인 전), hook 동작 변경
+- 미확인 항목(O13): 세 항목 모두 "세션 밖 조건 필요". 바뀐 것 없음.
+- 예상 [추측]:
+  - E14: check-method-doc 테스트는 구현 전에 assertion 단계에서 모두 실패한다(`user-doc-lines` 규칙 없음, plan-first가 ➖가 아닌 ❌).
+  - E15: 회귀 5개(pwsh `2>$null`, `git show HEAD:test/...`, `git log -- test/`, `git stash list`, `echo '<a@b.com>'`)는 지금도 allow라서 통과한다.
+  - E16: 구현 뒤 `--id INFRA-1`과 `INFRA-2`는 plan-first ➖, `INFRA-3~5`는 ✅. `user-doc-lines`는 INFRA-1~5 모두 ✅다(INFRA-3, 4는 INFRA-5에서 줄 번호를 보충했고, HEAD 기준으로 판정하기 때문).
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
 - ✅ (INFRA-5에서 해결) ~~[INFRA-3 보안 회귀]~~ stripData()가 **실행되는** heredoc/here-string 본문(`bash <<EOF`, `sh -s <<EOF`, `@'...'@ | Invoke-Expression`)까지 지워서, 본문 안의 테스트 파일 쓰기를 허용한다. 발견: INFRA-3 감사(2026-11-07). 확인: `node .git/verify-heredoc.cjs` → 3개 모두 allow [확인됨]. 상태 폴더 heredoc은 deny. 제안: INFRA-5(셸·인터프리터에 넘기는 경우는 본문을 지우지 않는다) → 사용자 보고.
+
+- ⚠ [규칙 B 한계, 의도적으로 남김] 상태 폴더(.claude/state/) 쓰기는 실행 전 패턴 검사만 한다. 경로 표기 변형(`.claude/"state"`, `.claude/./state`), python `open(...,'w')`, PowerShell 별칭 `sc`로 우회할 수 있다(guard-bypass-cases.md 31, 36, 38) [추측: 코드 기준]. 사용자 결정(INFRA-5 설계 4번)으로 남겨 둔 한계다. 최종 방어선은 PR 감사와 check-method다.
 
 ## 시도하다 막힌 것
 (없음)
