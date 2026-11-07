@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [INFRA-8] 완료(main에 병합). 다음은 Flow 모양 보완(PRX 보고서 결정 2, 3, 4, 10).
-- 다음 할 일: Flow 모양 보완(결정 2, 3, 4, 10, O30 보충) → 실행 진입점 `npm start`(결정 6, A10) → PRX ✅ → TLS(보류 중인 O22~O31 검토 포함)
+- 작업: [PRX-3] 완료(main에 병합). 다음은 [PRX-4] 실행 진입점 `npm start`.
+- 다음 할 일: 실행 진입점 `npm start`(PRX-4: 결정 6, A10) → PRX ✅ → TLS(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
@@ -296,6 +296,37 @@
   - INFRA-1~7에 같은 검사 → ❌ 없음. `npm test` 273/273(e53f214).
 - 계획과 달라진 점: 없음.
 - [INFRA-8] 완료: 1b1cfaf..(문서 커밋). 다음: Flow 모양 보완(보고서 결정 2, 3, 4, 10 + O30 보충 테스트).
+
+### [PRX-3] 계획
+- 근거: PRX 중간 확인 보고서 승인(2026-11-07) — 결정 2(시작 + 끝), 3(목적지 칸), 4(본문 도중 타임아웃 5분), 10(bad-response). 그리고 O30 보충(유출 테스트의 긍정 전제).
+- 미확인 항목(O13): 변화 없음.
+- 큰 단위 절(CLAUDE.md): PRX의 큰 단위 테스트(PRX-T)는 있다. 이 작은 단위가 끝나면 PRX-T를 포함해 전체를 다시 돌린다.
+- 설계 [추측]:
+  - 시작 알림은 새 옵션 `onFlowStart(start)`로 한다. 기존 `onFlow`는 "끝날 때 1번"을 유지한다. `onFlow`를 두 번 부르게 바꾸면 커밋된 PRX-2 테스트(I5: 요청당 정확히 1번)를 고쳐야 하기 때문이다. 같은 요청의 시작과 끝은 같은 `id`를 갖는다. start = `{ id, startedAt, request: { method, url, httpVersion, headers, target } }`(본문·응답 없음).
+  - `request.target = { scheme, host, port, path }`: absolute-form을 해석한 값. host는 WHATWG URL의 hostname(소문자, IPv6는 대괄호), port는 숫자(생략 시 http 80, https 443), path는 rawPath(정규화하지 않은 원문, #조각 제외). 해석할 수 없는 요청(origin-form 등)은 `target` 없음.
+  - 타임아웃: `upstreamTimeoutMs`(30초)는 **응답 헤더를 받기 전**까지만. 응답 헤더를 받은 뒤에는 새 옵션 `upstreamBodyTimeoutMs`(기본 300,000 = 5분) 동안 아무것도 오지 않으면 끊고 error `{ by: 'upstream', code: 'timeout' }`(응답 도중이라 status 없음).
+  - 목적지 응답을 해석할 수 없어서 난 오류(Node의 `HPE_*` 코드)는 `bad-response`(502). 연결 자체가 안 되면 지금처럼 `unreachable`.
+- 한 줄 보고: 목표 = 다음 단계(TLS, STO, UI)가 기댈 Flow 모양을 확정 / 범위 =
+  - `src/flow/flow.ts`: 타입 `Flow`에 `request.target`, error code `bad-response`, 새 타입 `FlowStart`, 새 함수 `parseTarget(url)`
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `onFlowStart`, `upstreamBodyTimeoutMs`(함수가 아니면 시작 거부는 onFlowStart에도), `'request'` 처리기 시작 시 `emitFlow`로 시작 알림, 기록에 target, `upstream.on('response')`에서 타임아웃 교체, `upstream.on('error')`의 코드 분류
+  - 새 `test/prx/PRX-3.test.ts`(새 동작), 새 `test/prx/PRX-3-regression.test.ts`(O30 긍정 전제: 자식 프록시의 출력 수집이 실제로 작동함 — 구현 전에도 통과)
+  - `docs/ai/purpose-tree.md`(PRX-3 🔨, PRX-4 추가), `docs/ai/map.md`(Flow 모양), `docs/for-me/PRX-3.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = `npm start`(PRX-4), 저장소(STO), CONNECT 기록(TLS-1)
+- 예상 [추측] (판정 기준 포함, O38):
+  - E42: 새 동작 테스트는 구현 전에 모두 assertion으로 실패한다(onFlowStart 무시 → 시작 알림 0건, target 없음, 본문 도중 300ms 쉬면 끊김, 깨진 응답은 unreachable). 판정: 실패 수 = 테스트 수, 오류 0개.
+  - E43: Node 클라이언트가 깨진 목적지 응답(`NOT HTTP`)에 내는 오류 코드는 `HPE_`로 시작한다. 헤더 크기 초과는 `HPE_HEADER_OVERFLOW`. 판정: 두 경우 모두 `HPE_` 접두어면 일치. 실측 명령: `node scripts/probe/prx3-errcode.mjs`.
+  - E44: 회귀(O30 긍정 전제)는 구현 전에도 통과한다: 구독자가 throw하면 자식 프록시 출력에 고정 문구 `[sumun] 기록 구독자에서 오류`가 나온다(PRX-2 구현). 판정: 통과면 일치.
+  - E45: 구현 뒤 `node scripts/probe/prx2b-g9.mjs 10000` → error code가 `unreachable`에서 `bad-response`로 바뀐다. 판정: 문자열 비교.
+
+- 실측 (명령 원문):
+  - E43 일치(구현 전, 실측 커밋 22e556e): `node scripts/probe/prx3-errcode.mjs` → HPE_INVALID_CONSTANT, HPE_HEADER_OVERFLOW, HPE_INVALID_TRANSFER_ENCODING / ECONNRESET, ECONNREFUSED.
+  - E42 일치: `npm run test:red -- test/prx/PRX-3.test.ts` → 처음 11개 중 1개("onFlowStart 예외에도 중계 그대로")가 구현 전에 통과 → 회귀 파일로 옮긴 뒤 10개 모두 실패, assertion 10개, 오류 0개.
+  - E44 일치: `node --test test/prx/PRX-3-regression.test.ts` → 구현 전 2/2.
+  - flow.ts만 있는 시점(server.ts를 `git show HEAD:src/proxy/server.ts`로 잠시 되돌림): `npm test` → 285개 중 275개 통과. server.ts까지 → 285/285(d620b76).
+  - E45 일치: `node scripts/probe/prx2b-g9.mjs 10000` → error code bad-response.
+  - 실제 curl(O31): `node scripts/probe/prx3-curl.mjs` → 시작 알림 239ms, 끝 기록 1195ms, curl 끝 1208ms. 처음 실행에서 스크립트가 출력 시각을 await 전에 계산하는 결함을 찾아 고쳤다.
+- 계획과 달라진 점: id를 요청이 끝날 때가 아니라 받을 때 매기게 바꿨다(시작·끝 id를 같게 하려면 필요). 계획의 범위 문장에는 없었다.
+- [PRX-3] 완료: 16f45e4..(문서 커밋). 다음: [PRX-4] 실행 진입점.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
