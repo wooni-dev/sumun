@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-3] 완료(main에 병합). 다음은 [PRX-4] 실행 진입점 `npm start`.
+- 작업: [PRX-4] 실행 진입점. 브랜치 feat/PRX-4.
 - 다음 할 일: 실행 진입점 `npm start`(PRX-4: 결정 6, A10) → PRX ✅ → TLS(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
@@ -327,6 +327,23 @@
   - 실제 curl(O31): `node scripts/probe/prx3-curl.mjs` → 시작 알림 239ms, 끝 기록 1195ms, curl 끝 1208ms. 처음 실행에서 스크립트가 출력 시각을 await 전에 계산하는 결함을 찾아 고쳤다.
 - 계획과 달라진 점: id를 요청이 끝날 때가 아니라 받을 때 매기게 바꿨다(시작·끝 id를 같게 하려면 필요). 계획의 범위 문장에는 없었다.
 - [PRX-3] 완료: 16f45e4..(문서 커밋). 다음: [PRX-4] 실행 진입점.
+
+### [PRX-4] 계획
+- 근거: PRX 보고서 결정 6(승인) — 실행 진입점을 지금 만든다. A10(포트 값 검사)을 여기서 한다(보고서 결정 14).
+- 미확인 항목(O13): 변화 없음.
+- 보안 사례(O10): 요약 줄이 기록 내용을 터미널로 내보내는 새 출력 경로라서 검토 에이전트에게 먼저 받았다 → `docs/ai/prx4-cases.md`(K 14, L 10, M 10, N 7, 결정 D1~D11 + D12′). 결정은 추천안으로 진행하고 다음 보고서에 올린다.
+- 한 줄 보고: 목표 = 사용자가 `npm start`로 띄우고 브라우저를 127.0.0.1:8080에 설정해 쓸 수 있게 / 범위 =
+  - 새 `src/cli.ts`: 함수 `parseArgs(argv)`(→ `{ port }` 또는 `{ error }`, D3·D4·D5), `safeText(s, max)`(제어 문자·C1·U+2028·bidi 이스케이프, 길이 제한 — D1, D6), `formatSummary(flow)`(target의 호스트:포트, 메서드, 상태 또는 실패 코드, 소요 시간만. 예외를 던지지 않음 — K, M8)
+  - 새 `src/index.ts`: `main()` — 인자 검사 → `startProxy({ port, onFlow })` → 시작 줄 → 요약 줄, 시작 실패는 오류 코드별 고정 문구 + 종료 코드 1(M1), SIGINT에 `close()` + 2초 뒤 강제 종료(D7)
+  - `package.json`: `scripts.start` = `node src/index.ts`
+  - 새 `test/prx/PRX-4.test.ts`(cli.ts 단위 + index.ts 자식 프로세스), 회귀가 생기면 `test/prx/PRX-4-regression.test.ts`
+  - `docs/ai/purpose-tree.md`, `docs/ai/prx4-cases.md`, `docs/for-me/PRX-4.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 대시보드, 기록 보관(STO), Ctrl+C의 자동 테스트(Windows에서 `child.kill('SIGINT')`는 처리기를 거치지 않는다 — 수동 확인 항목으로 남김)
+- 예상 [추측] (판정 기준 포함):
+  - E46: stub(cli.ts의 함수는 undefined를 돌려줌, index.ts는 빈 파일)에서 새 동작 테스트는 모두 assertion으로 실패한다. 자식 프로세스 테스트는 "시작 줄을 기다리다 프로세스가 끝남"으로 실패한다. 판정: 실패 수 = 테스트 수, 오류 0개.
+  - E47: `node src/index.ts`는 Node의 경고(ExperimentalWarning 등) 없이 시작한다(N7). 판정: stderr가 빈 문자열이면 일치.
+  - E48: WHATWG URL은 IDN 호스트를 punycode로, `%0d%0a`가 든 호스트는 해석 실패로 돌린다 → 요약 줄에 오는 호스트에는 제어 문자가 남지 않는다. 판정: `node -e`로 `new URL('http://аpple.com/').hostname`이 `xn--`로 시작하고, `new URL('http://a%0d%0ab/')`가 예외면 일치.
+  - E49: 실제 curl(O31): `npm start -- --port <P>` 뒤 `curl -x`로 요청하면 요약 줄 1개가 나오고, 줄에 경로·쿼리·쿠키가 없다. 판정: 표식 문자열이 stdout에 0번.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
