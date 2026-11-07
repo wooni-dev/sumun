@@ -7,19 +7,26 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
 const TEST_COMMIT = '테스트:';
+const PLAN_COMMIT = '계획:';
 const PROGRESS = 'docs/ai/progress.md';
 const TREE = 'docs/ai/purpose-tree.md';
 
 export function checkCommits({ id, commits, docExists }) {
   const results = [];
   const add = (rule, ok, detail) => results.push({ rule, ok, detail });
-  const first = commits[0];
+
+  // [INFRA-4] O3: PR 첫 커밋이 계획 커밋(제목에 "계획:", docs/만 변경)이면 그다음부터 테스트 커밋을 찾는다
+  const isPlan = (x) => x.subject.includes(PLAN_COMMIT) && x.files.length > 0 && x.files.every((f) => f.startsWith('docs/'));
+  const planned = !!commits[0] && isPlan(commits[0]);
+  add('plan-first', planned, planned ? `계획 커밋 ${commits[0].hash} (예상값을 실측보다 먼저 커밋)` : '계획 커밋 없음 (INFRA-3 이전 작업이면 규칙 도입 전)');
+  const rest = planned ? commits.slice(1) : commits;
+  const first = rest[0];
 
   const firstIsTest = !!first && first.subject.includes(TEST_COMMIT) && first.files.length > 0 && first.files.every((f) => f.startsWith('test/'));
   add('test-first', firstIsTest, first ? `첫 커밋 ${first.hash}: ${first.subject} (${first.files.join(', ')})` : '이 ID의 커밋이 없음');
 
   const testFiles = new Set((first?.files ?? []).filter((f) => f.startsWith('test/')));
-  const touched = commits.slice(1).flatMap((x) => x.files.filter((f) => testFiles.has(f)).map((f) => `${x.hash}: ${f}`));
+  const touched = rest.slice(1).flatMap((x) => x.files.filter((f) => testFiles.has(f)).map((f) => `${x.hash}: ${f}`));
   add('test-unchanged', touched.length === 0, touched.length ? `테스트 커밋 이후 변경됨 → ${touched.join(', ')}` : `테스트 파일 ${testFiles.size}개 변경 없음`);
 
   const badMsg = commits.filter((x) => !/^- 왜:/m.test(x.body) || !/^- 검증:/m.test(x.body)).map((x) => x.hash);
