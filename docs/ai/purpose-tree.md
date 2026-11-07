@@ -38,7 +38,7 @@
  │   └ [PRX-4] 실행 진입점 `npm start` + 포트 값 검사(A10)   ✅  → src/index.ts, src/cli.ts  (PRX 보고서 결정 6)
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  🔨  의존: PRX-2
  │   ├ [TLS-T] 큰 단위 테스트: CONNECT → 프록시가 TLS 종료 → 복호화한 요청을 기록 → 검증한 HTTPS 목적지로   🔨  → test/tls/TLS-T.test.ts  (대기: src/tls/mitm.ts)
- │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    🔨  → src/tls/tunnel.ts  (tls1-cases.md 배정 "1")
+ │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ✅  → src/tls/tunnel.ts  (tls1-cases.md 배정 "1")
  │   ├ [TLS-1b] 터널 견고성: half-close, 대용량, 연결 타임아웃, 동시 300개, 종료   ⬜  → src/tls/  (배정 "1b". 2026-11-07 TLS-1에서 나눔 — 작은 기능 추가)
  │   ├ [TLS-2] 루트 CA 생성·보관 ⚠ 개인키 보호                          ⬜  → src/ca/
  │   ├ [TLS-3] 호스트별 인증서 즉석 발급                                 ⬜  → src/ca/     의존: TLS-2
