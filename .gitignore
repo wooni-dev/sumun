@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+
+# 인증서와 키는 절대 커밋하지 않는다 (CA는 저장소 밖 %APPDATA%\sumun\ca\ 에 둔다. 혹시 모를 실수를 막기 위한 이중 장치)
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
