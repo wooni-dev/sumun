@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-2b] 완료(main에 병합). 다음: TLS-3.
+- 작업: [TLS-3] 사이트별 인증서 발급 (feat/TLS-3). 아래 "[TLS-3] 계획".
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -543,6 +543,25 @@
 - 범위 밖 기록: 이미 있는 키 파일의 권한은 불러올 때 검사하지 않는다(다른 방법으로 만들었거나 나중에 권한이 바뀐 키). 필요하면 경고를 추가하는 작은 단위로.
 - [TLS-2b] 완료: 6eb9f70..5353296 + 이 기록 커밋. 다음: TLS-3(호스트별 인증서 발급).
 - `node scripts/check-method.mjs --id TLS-2b` → 11개 중 10 ✅, test-unchanged ❌(a3cf4eb) [확인됨] — 사용자 허용(“테스트 수정 허용”)으로 고친 테스트가 그대로 잡힌 것. 검사가 의도대로 동작했다. 이유와 원래 값은 a3cf4eb 메시지. TLS 큰 단위 감사에 넘김.
+
+### [TLS-3] 계획
+- 사용자 승인(2026-11-08): "TLS-3 진행". 결정 3개 — 말단 유효 기간 **30일**, 말단 키 **호출마다 새 키**, 와일드카드 **금지**(모두 추천안 선택).
+- 미확인 항목(O13): 변화 없음.
+- 보안 사례(O10): `docs/ai/tls3-cases.md`(검토 에이전트 55개 + 결정 13개). 47~55는 프록시 문맥이 필요해 TLS-4로 배정(O28 — TLS 보고서에 올림).
+- 한 줄 보고: 목표 = 루트 CA로 사이트별 말단 인증서를 정책대로, 프록시를 멈추지 않고 발급 / 범위 =
+  - `src/ca/ca.ts`: 새 함수 `issueCert(ca, hosts)`(→ `{ certPem, keyPem }`), 도우미 `normalizeHosts(hosts)`(거부·정규화). 오류 code 추가 `CA_BAD_HOST`, `CA_BAD_ISSUER`(루트 CA가 쓸 수 없음). 서명은 forge로 TBS를 만들고 Node `crypto.sign` 콜백으로
+  - 새 `test/ca/TLS-3.test.ts`(새 동작), 회귀가 생기면 `test/ca/TLS-3-regression.test.ts`, 새 `scripts/probe/tls3-sign.mjs`
+  - `docs/ai/tls3-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/TLS-3.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 캐시·single-flight(TLS-4), 프록시에 연결(TLS-4), Windows 인증서 저장소
+- 예상 [추측] (판정 기준 포함):
+  - E85: forge `pki.getTBSCertificate(cert)`의 DER을 Node `crypto.sign('sha256', tbs, 루트키, 콜백)`으로 서명하고 forge 인증서에 `signature`·`signatureOid`를 넣어 PEM으로 만들면, Node `X509Certificate.verify(루트 공개키)`가 true이고 openssl이 sha256WithRSAEncryption으로 읽는다. 판정: 둘 다.
+  - E86: 그 방식으로 1회 발급(키 생성 포함) 동안 이벤트 루프 최대 지연 < 50ms. 같은 측정에서 forge 동기 서명은 ≥ 50ms. 판정: 둘 다.
+  - E87: forge altNames `{ type: 7, ip: '127.0.0.1' }`과 `{ type: 7, ip: '::1' }`이 iPAddress 4·16바이트로 들어가고, Node `X509Certificate.checkIP`가 맞는다. 판정: 둘 다 true.
+  - E88: forge AKI `{ name: 'authorityKeyIdentifier', keyIdentifier: <루트 SKI 바이트> }`가 루트 SKI와 같은 값으로 들어간다. 판정: openssl의 Authority Key Identifier = 루트 Subject Key Identifier.
+  - E89: 말단 issuer를 루트 인증서의 subject 속성으로 정하면 DER 이름이 바이트까지 같다(둘 다 forge가 만든 이름). 판정: 같음.
+  - E90: Node `tls.connect({ ca: 루트, servername: 'localhost' })`가 `['localhost']` 인증서에 성공, `servername: 'other'`면 ERR_TLS_CERT_ALTNAME_INVALID. 판정: 둘 다.
+  - E91: stub(`issueCert`가 undefined를 돌려줌)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E92: 구현 뒤 `npm test` 실패 0, 큰 단위 대기 TLS 2(TLS-T는 `src/tls/mitm.ts`를 기다림). 판정: 둘 다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
