@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: INFRA-1, INFRA-2 감사 → 사용자 보고
-- 다음 할 일: 보고서의 결정 항목 처리(hook 오탐 수정 여부) → [PRX-1]
+- 작업: INFRA 감사 보고 → 사용자 결정 대기
+- 다음 할 일: 결정 항목 처리(hook 오탐 수정 INFRA-3, 방식 보정 O1~O8) → 미확인 항목 처리(O6) → [PRX-1]
 
 ## 로그
 ### 2026-11-07
@@ -28,7 +28,10 @@
 - 관찰: `test:red`는 import 단계에서 실패하면 파일 전체를 실패 1개로 센다 → "구현 전부터 통과하는 테스트"를 개별로 걸러내지 못한다(방식 피드백 후보).
 - 실측 전 예상 [추측] E3: `check-method --id INFRA-1` → test-first ✅, test-unchanged ✅, message-format ✅, user-doc ✅, progress-updated ✅, tree-updated ➖, 커밋 7개(병합 제외).
 - 실측 결과: E3 일치 [확인됨: 3c02aac에서 실행].
-- [INFRA-2] 완료: 20ae0c7..(문서 커밋), npm test 35/35.
+- [INFRA-2] 완료: 20ae0c7..e9b3197, npm test 35/35.
+- 감사(INFRA-1, INFRA-2) → docs/method-feedback.md. 정정 기록:
+  - ~~401539b, d1df48a, eb7eb8d의 "검증: npm test 24/24 통과"~~ → 사실과 다르다 [확인됨: git ls-tree]. 실제로는 모든 파일이 있는 작업 트리에서 실행한 결과다. 각 커밋 시점의 실제 상태: 401539b에는 실행기가 없어 실행할 수 없음, d1df48a에서는 hook이 없어 hooks 테스트 실패 예상, eb7eb8d에서는 on-prompt 테스트 3개 실패 예상 [추측: 다시 실행하지 않음]. 원인은 테스트를 돌린 뒤 커밋을 나눈 것이다.
+  - d73d44c의 "22개 중 22개 실패" = hooks 21개 + import 단계에서 실패한 streak 파일 1개. 실제 테스트 수는 24개이고, streak 3개가 개별로 실패하는 것은 확인하지 않았다.
 
 ## 범위 밖 문제
 - ⚠ [INFRA-1 결함] guard.mjs 오탐: 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
