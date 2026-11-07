@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: PRX-1 감사 후속 끝 → 사용자 보고
-- 다음 할 일: 결정 항목(PRX-1.md) 확인 → [PRX-1b]
+- 작업: [PRX-1b] 끝 → 사용자 보고
+- 다음 할 일: [PRX-1c]
 - 미확인: on-prompt.mjs 실제 작동, ai-research Read 규칙(새 세션), method-auditor 이름 호출(새 세션)
 
 ## 로그
@@ -136,6 +136,27 @@
   - 고친 뒤 재실측(2f1a5a9): 같은 스크립트로 CONNECT → 501(curl 종료 코드 7), 자기 자신 → 508, 이어서 `/still-alive` → 200, `curl http://127.0.0.1:18088/x`(origin-form) → 400 [확인됨]. npm test 121/121.
 - 실측 재현 스크립트(O19, PRX-1 감사 지적): `node scripts/probe/prx1-curl.mjs` → 1) 200, 목적지가 `GET /hello?q=1 via=1.1 sumun host=127.0.0.1:18090 proxy-connection=undefined`를 받음 / 2) 501(curl 종료 코드 7) / 3) 508 / 4) 200 / 5) 400 [확인됨: AUDIT-4].
 - [PRX-1] 완료: 026ecac..(문서 커밋). 결정 항목(추천안으로 진행, 보고서에 올림): 루프 508, Connection에 나열된 헤더는 RFC대로 제거(Host, Content-Length 제외), PRX-1b 노드 추가.
+
+### [PRX-1b] 계획
+- 사용자 결정(2026-11-07): "계속 진행해" → PRX-1 결정 항목(508, Connection 나열 헤더 RFC대로 제거, 사례 분할)을 승인으로 기록한다.
+- 미확인 항목(O13): 세 항목 모두 세션 밖 조건 필요. 변화 없음. 이월된 "고칠 것": 범위에 도우미 모듈도 파일 이름 + 함수로 적기(O11) → 이 계획에서 적용한다.
+- 한 줄 보고: 목표 = 요청 쪽 공격·이상 입력을 막는다. 무엇을 Node 파서가 이미 막는지 실측해서 테스트로 고정한다 / 범위 =
+  - `src/proxy/server.ts`: `'request'` 처리기 안의 대상 검사 → 함수 `validateTarget(url)`로 분리. 추가 규칙: 호스트 없음, 포트 0은 400 / 함수 `validateHost(req)`: Host가 둘 이상이거나 `,`·공백이 들어 있으면 400 / `startProxy()`의 http 서버 옵션(헤더 개수 제한을 몰래 버리지 않게 하는 처리)
+  - 새 `test/prx/_raw.ts`(원시 바이트로 요청을 보내는 도우미: 함수 `rawRequest`), 새 `test/prx/PRX-1b.test.ts`(새 동작), 새 `test/prx/PRX-1b-regression.test.ts`(Node가 이미 막아서 구현 전에도 통과하는 사례)
+  - `docs/ai/purpose-tree.md`(PRX-1b 🔨, PRX-1c 추가), `docs/ai/prx1-cases.md`(1b/1c 배정), `docs/for-me/PRX-1b.md`
+  - 하지 않을 것 = 배정 "1c", CLI, tsc
+- 예상 [추측] — Node 24 llhttp 파서와 http 서버의 기본 동작에 대한 추측이다:
+  - E22: **구현 전에도 통과(=Node나 PRX-1이 이미 막음)**: C1(`*`), C5의 `:65536`·`:abc`·`:-1`·`:80:81`(URL이 거부), C6(userinfo 제거), C7(제어문자), C9(경로 원문), C11(zone ID), C12(대문자 scheme), C13(100KB URL → 431), C15(HTTP/1.1 Host 없음 → 400), C17(HTTP/1.0 Host 없음 → 정상), C19, D1(CL+TE), D2(다른 CL 두 개), D3(CL 이상값), D6(헤더 이름 뒤 공백), D7(obs-fold), D9(잘못된 chunk), D10(파이프라인), D14(64KB 헤더 → 431), E4, E6, E14
+  - E23: **구현 전에 실패(새 동작)**: C2 `http:///path`(WHATWG URL이 "path"를 호스트로 해석할 것), C5 `:0`(포트 0으로 연결 시도 → 502), C16(Host 두 줄, `Host: a, b` — Node는 막지 않을 것), D15(작은 헤더 3,000개 → Node가 2,000개 넘는 헤더를 몰래 버릴 것)
+  - E24: 확신 없음 → 실측으로 정한다: D4(TE `identity`, `chunked, identity`), D5(HTTP/1.0 + TE), D8(LF만 있는 줄바꿈)
+- 실측 (명령: `node --test test/prx/PRX-1b.test.ts`, 이때는 46개를 한 파일에 둔 상태로 PRX-1 구현에 대고 실행):
+  - 46개 중 36개 통과, 10개 실패.
+  - E22: 대부분 일치. **불일치**: C13·D14는 상태 0(Windows에서 RST가 응답을 지움 → 측정 방법 문제), C19 DELETE·PATCH 실패(테스트 클라이언트가 DELETE에 Content-Length를 붙이지 않음 → 테스트 결함).
+  - E23: C2 `http:///path`(응답 지연, DNS 조회 시도), C5 포트 0(502), C16 3건 일치. **불일치**: D15는 Node가 이미 431로 거부했다(몰래 버릴 것이라는 예상이 틀림).
+  - E24 결과: D4 3건, D8 2건은 Node가 거부. **D5는 Node가 받아서 넘겼다** → 새 동작.
+  - 새 동작 6개, 회귀 40개로 나눠 커밋(5ad27d9). 구현 뒤 `npm test` 167/167(fb8c15c). 실측: `node scripts/probe/prx1b-curl.mjs` → 200 / 400 / 400 / 400 / 200 [확인됨].
+- 계획과 달라진 점: D5는 Host 검사가 아니라 본문 경계 검사라 함수 `validateFraming()`을 따로 뒀다. D15는 Node가 이미 막아서 서버 옵션 변경이 필요 없어졌다.
+- [PRX-1b] 완료: 71eb378..(문서 커밋).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
