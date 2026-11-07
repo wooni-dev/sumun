@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-1b] 완료(main에 병합). `npm test` 438개 중 436 통과·실패 0·큰 단위 대기 TLS 2.
+- 작업: [TLS-2] 루트 CA 생성·보관 (feat/TLS-2). 아래 "[TLS-2] 계획".
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. [TLS-2] 루트 CA 생성·보관 — 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -481,6 +481,27 @@
 - 계획과 달라진 점: 실측 커밋이 둘(8bcf71e, 51464e9)이 됐다. R12 테스트 절차를 환경 한계에 맞췄다. R6c(목적지가 FIN 뒤 완전히 끊으면 클라이언트도 닫기)를 검토했지만 뺐다 — 프록시는 쓰기 전에는 상대가 FIN만 보냈는지 완전히 끊었는지 알 수 없고, 반쪽 닫힌 상태를 그대로 비추는 것이 결정 6이다.
 - [TLS-1b] 완료: 2064e4d..7ce8f06 + 이 기록 커밋. 다음: TLS-2(루트 CA — 시작 전 사용자 확인).
 - `node scripts/check-method.mjs --id TLS-1b` → 11개 규칙 중 10 ✅, **message-format ❌**(8bcf71e, 51464e9, 8518b93, 565eee3) [확인됨]. 원인: "검증" 뒤에 괄호로 조건을 붙여 `- 검증(구현 전, …):`으로 썼고, 검사는 줄 머리 `- 검증:`을 요구한다(scripts/check-method.mjs의 badMsg). 왜·검증 내용은 들어 있다. 고치려면 브랜치 이력을 다시 써야 해서 문서·메시지에 적은 해시가 모두 틀어진다 → 고치지 않고 남긴다. 다음부터 `- 검증: (조건) …`으로 쓴다. 큰 단위(TLS) 감사에 넘길 항목.
+
+### [TLS-2] 계획
+- 시작 전 사용자 확인(2026-11-08): "TLS-2 시작" 승인. node-forge **1.4.3 고정**(추천안 선택). 키 위치 **`%LOCALAPPDATA%\sumun\ca\`**(395dd35에서 CLAUDE.md 변경), 깨진·만료 CA는 **멈추고 알림**, 루트 EKU **serverAuth만** — 모두 추천안 선택.
+- node-forge 확인 [확인됨]: `npm view node-forge time` → 1.4.1~1.4.3이 2주 안(10-27, 11-04)에 나온 보안 수정판. 공식 CHANGELOG와 GitHub 보안 공지가 내용과 맞음. 고친 기능(체인 검증, TLS 클라이언트, PKCS#12, AES-GCM, ed25519)은 우리가 쓰지 않는다 [추측]. `npm install --save-exact node-forge@1.4.3` → `npm audit signatures` "1 package has a verified registry signature". GitHub `v1.4.3` 태그 tarball과 `diff -r forge-1.4.3/lib node_modules/node-forge/lib` → 같음. install 훅 없음(prepublish만). package.json 변경은 첫 구현 커밋에 넣는다.
+- 미확인 항목(O13): 변화 없음(method-auditor는 이번 세션에서도 Agent 목록에 없음).
+- 보안 사례(O10): `docs/ai/tls2-cases.md`(검토 에이전트 51개 + 결정 15개). 크기 때문에 TLS-2와 TLS-2b(쓰기 견고성·ACL)로 나눔. 재배정은 그 문서의 "재배정"(O28).
+- 한 줄 보고: 목표 = 루트 CA를 안전한 필드로 만들고, 저장소 밖에 보관하고, 깨진 상태에서는 멈춘다 / 범위 =
+  - 새 `src/ca/ca.ts`: `loadOrCreateCA(dir, { now?, onWarning? })`(→ `{ certPem, keyPem }`), `defaultCADir(env)`, 오류 클래스 `CAError`(code: `CA_INCOMPLETE`·`CA_MISMATCH`·`CA_CORRUPT`·`CA_NOT_CA`·`CA_EXPIRED`·`CA_NOT_YET_VALID`·`CA_DIR_RELATIVE`·`CA_DIR_IN_REPO`·`CA_DIR_NOT_DIR`·`CA_ENV_MISSING`). 파일 이름 `ca-cert.pem`, `ca-key.pem`. 키는 Node `crypto.generateKeyPair`, 인증서는 forge
+  - `package.json`(의존성 node-forge 1.4.3), `package-lock.json`
+  - 새 `test/ca/TLS-2.test.ts`(새 동작), 도우미는 파일 안. 회귀가 생기면 `test/ca/TLS-2-regression.test.ts`
+  - 새 `scripts/probe/tls2-forge.mjs`(forge 함정 실측), `docs/ai/tls2-cases.md`, `docs/ai/purpose-tree.md`(TLS-2 🔨, TLS-2b 추가), `docs/ai/map.md`, `docs/for-me/TLS-2.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = Windows 인증서 저장소(등록·해제), 배정 "2b", 호스트별 발급(`issueCert`, TLS-3), `npm start`에서 CA 쓰기(TLS-4), pre-commit hook
+- 예상 [추측] (판정 기준 포함):
+  - E69: forge `cert.sign(key)`에 md를 안 넘기면 SHA-1로 서명한다. 판정: Node `X509Certificate`로 읽은 서명 OID 또는 `openssl x509 -text`의 Signature Algorithm이 sha1WithRSAEncryption이면 일치.
+  - E70: forge에 첫 hex 글자가 8~f인 일련번호를 주면 DER INTEGER가 음수가 된다. 판정: DER 일련번호 첫 바이트 ≥ 0x80이고 앞에 00이 없으면 일치.
+  - E71: forge `pki.privateKeyFromPem`이 Node가 만든 PKCS#8(`BEGIN PRIVATE KEY`)을 읽고, 그 키로 서명한 인증서를 Node `X509Certificate.verify(publicKey)`가 true로 본다. 판정: 둘 다 true.
+  - E72: forge로 basicConstraints(cA, pathLen 0, critical), keyUsage(critical), EKU serverAuth, SKI를 넣으면 `openssl x509 -text`에 "CA:TRUE, pathlen:0", "Certificate Sign, CRL Sign", "TLS Web Server Authentication", "Subject Key Identifier"가 모두 나온다. 판정: 넷 다.
+  - E73: `certutil -dump <파일>`이 종료 코드 0으로 읽고, 저장소는 바뀌지 않는다(`certutil -user -store Root` 줄 수 전후 같음). 판정: 둘 다.
+  - E74: RSA 2048 생성(Node 비동기) + forge 서명 전체 < 3초, 그동안 이벤트 루프 최대 지연 < 200ms. 판정: 둘 다.
+  - E75: stub(빈 함수 export)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E76: 구현 뒤 `npm test`는 실패 0이고 "큰 단위 대기 TLS 2"가 그대로다(TLS-T는 `src/tls/mitm.ts`를 기다림). 판정: 둘 다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
