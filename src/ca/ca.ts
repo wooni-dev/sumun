@@ -359,8 +359,25 @@ export function normalizeHosts(hosts: unknown): Name[] {
 }
 
 // 결정 11: 루트가 쓸 수 있는지 — 짝, 우리 CA 정책(TLS-2와 같은 검사), 남은 기간 1일 이상
+// 짝·정책 검사를 통과한 루트는 기억해 두고 다시 쓴다. 매번 다시 검사하면 1회 동기 구간 2.4~3ms 중 1.4~1.9ms가 이 몫이라
+// 동시 발급 때 이벤트 루프 지연이 50ms를 넘었다 [확인됨: scripts/probe/tls3-sync.mjs, tls3-lag.mjs — eee261b].
+// 열쇠는 인증서와 키 PEM 둘 다(키가 다르면 기억을 쓰지 않는다). 유효 기간은 시간이 흐르므로 매번 확인한다. 상한 4개
+const ISSUERS = new Map<string, { root: forge.pki.Certificate; key: crypto.KeyObject }>();
+const MAX_ISSUERS = 4;
 function checkIssuer(ca: CA, now: number) {
   const bad = (why: string) => new CAError('CA_BAD_ISSUER', `발급에 쓸 루트 CA가 올바르지 않습니다(${why})`, 'ca');
+  const id = `${ca.certPem}\n${ca.keyPem}`;
+  const known = ISSUERS.get(id) ?? parseIssuer(ca, bad);
+  if (!ISSUERS.has(id)) {
+    if (ISSUERS.size >= MAX_ISSUERS) ISSUERS.delete(ISSUERS.keys().next().value!);
+    ISSUERS.set(id, known);
+  }
+  const { root } = known;
+  if (now < root.validity.notBefore.getTime()) throw bad('유효 기간 시작 전');
+  if (root.validity.notAfter.getTime() - now < DAY) throw bad('만료됐거나 남은 기간이 1일 미만');
+  return known;
+}
+function parseIssuer(ca: CA, bad: (why: string) => CAError) {
   let x: crypto.X509Certificate;
   let key: crypto.KeyObject;
   try {
@@ -375,10 +392,7 @@ function checkIssuer(ca: CA, now: number) {
   } catch {}
   if (!pair) throw bad('인증서와 키의 짝이 맞지 않음');
   if (!followsPolicy(x, ca.certPem)) throw bad('루트 CA 형식이 아님');
-  const root = forge.pki.certificateFromPem(ca.certPem);
-  if (now < root.validity.notBefore.getTime()) throw bad('유효 기간 시작 전');
-  if (root.validity.notAfter.getTime() - now < DAY) throw bad('만료됐거나 남은 기간이 1일 미만');
-  return { root, key };
+  return { root: forge.pki.certificateFromPem(ca.certPem), key };
 }
 
 export async function issueCert(ca: CA, hosts: string[]): Promise<CA> {
