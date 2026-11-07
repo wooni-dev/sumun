@@ -82,6 +82,9 @@ export async function startProxy({ port = 8080 }: { port?: number } = {}) {
 
   // CONNECT(HTTPS 터널)는 TLS 단계에서 만든다. 처리기가 없으면 Node는 응답 없이 연결을 끊으므로(실측), 501을 직접 보낸다 (C18)
   server.on('connect', (_req, socket: Socket) => {
+    // 이 소켓은 http 서버의 관리에서 벗어난 원시 소켓이다. 클라이언트가 응답을 받자마자 연결을 리셋하면(curl이 실제로 그렇게 함)
+    // 'error'가 나는데, 처리기가 없으면 Node가 프로세스를 종료한다 [확인됨: PRX-1 실측]. 여기서는 정리만 하면 된다.
+    socket.on('error', () => socket.destroy());
     const body = '501 Not Implemented: HTTPS(CONNECT)는 아직 지원하지 않습니다.\n';
     socket.end(
       `HTTP/1.1 501 Not Implemented\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(body)}\r\nvia: ${VIA_ID}\r\nconnection: close\r\n\r\n${body}`,
