@@ -3,13 +3,15 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-4] 실행 진입점. 브랜치 feat/PRX-4.
-- 다음 할 일: 실행 진입점 `npm start`(PRX-4: 결정 6, A10) → PRX ✅ → TLS(보류 중인 O22~O31 검토 포함)
+- 작업: [PRX-4] 완료(main에 병합). PRX ✅. 다음은 TLS 큰 단위(시작할 때 큰 단위 테스트 TLS-T 먼저).
+- 다음 할 일: TLS 큰 단위 — TLS-T(큰 단위 테스트) 먼저, TLS-1(CONNECT 터널)부터. TLS-2(루트 CA)는 개인키 보관 위치와 Windows 인증서 저장소 등록을 사용자에게 먼저 설명·확인(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
   - method-auditor 이름 호출 — 2026-11-07 새 세션에서 **안 됨** [확인됨: Agent 종류 목록에 없음]. 정의 파일 앞머리(name, description, tools)는 형식이 맞다. 원인은 모른다 [추측: 백그라운드 세션이라 프로젝트 에이전트를 싣지 않았을 수 있음]. 범용 에이전트가 정의 파일을 읽는 방식으로 계속한다.
   - on-prompt.mjs — 세션 밖 조건 필요("테스트 수정 허용" 입력 또는 연속 실패 카운터 > 0)
+  - Ctrl+C 종료(PRX-4) — 세션 밖 조건 필요: 사용자가 실제 터미널에서 `npm start` 후 Ctrl+C. 2초 안에 끝나는지
+  - 예약 포트 EACCES 메시지(PRX-4) — 환경 의존: `netsh int ipv4 show excludedportrange protocol=tcp`의 포트로 시작해 볼 때
 
 ## 로그
 ### 2026-11-07
@@ -344,6 +346,16 @@
   - E47: `node src/index.ts`는 Node의 경고(ExperimentalWarning 등) 없이 시작한다(N7). 판정: stderr가 빈 문자열이면 일치.
   - E48: WHATWG URL은 IDN 호스트를 punycode로, `%0d%0a`가 든 호스트는 해석 실패로 돌린다 → 요약 줄에 오는 호스트에는 제어 문자가 남지 않는다. 판정: `node -e`로 `new URL('http://аpple.com/').hostname`이 `xn--`로 시작하고, `new URL('http://a%0d%0ab/')`가 예외면 일치.
   - E49: 실제 curl(O31): `npm start -- --port <P>` 뒤 `curl -x`로 요청하면 요약 줄 1개가 나오고, 줄에 경로·쿼리·쿠키가 없다. 판정: 표식 문자열이 stdout에 0번.
+
+- 실측 (명령 원문):
+  - E48 일치(구현 전, 실측 커밋 62dd13b): `node scripts/probe/prx4-url-host.mjs` → IDN xn--, %0d%0a·%1b·U+202E·U+2028은 ERR_INVALID_URL, userinfo는 hostname에 없음.
+  - E46 일치: stub에서 `npm run test:red -- test/prx/PRX-4.test.ts` → 45개 모두 실패. 처음에는 assertion 40개 + TypeError 5개(테스트가 stub의 undefined에서 .includes를 읽음) → 커밋 전에 "문자열인가" assertion을 앞에 넣어 assertion 45개, 오류 0개.
+  - cli.ts만 있는 시점(index.ts는 stub): `node --test test/prx/PRX-4.test.ts` → 39/45. index.ts까지 → `npm test` 330/330(fde748f).
+  - E47 일치: M2 테스트가 `node src/index.ts --port P`의 stderr가 빈 문자열임을 확인(통과).
+  - E49 일치: `node scripts/probe/prx4-npm-start.mjs` → 요약 줄 2개, 표식 0번, stderr 빈 문자열. 처음 실행에서 스크립트 자신의 spawn이 DEP0190 경고를 내서 고쳤다(프록시와 무관).
+- 계획과 달라진 점: 회귀 파일은 생기지 않았다(구현 전에 통과한 사례 없음).
+- 미확인 추가(세션 밖 조건): 실제 터미널의 Ctrl+C 종료(사용자가 직접 npm start 후 Ctrl+C), Windows 예약 포트 EACCES 메시지(환경 의존).
+- [PRX-4] 완료: 1833765..(문서 커밋). PRX 보고서 승인 범위의 후속(INFRA-8, PRX-3, PRX-4)이 모두 끝나 PRX를 ✅로 바꾼다(O37: 보고서 승인 뒤). PRX-4의 결정 D1~D12′은 다음 큰 단위(TLS) 보고서에 올린다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
