@@ -66,9 +66,24 @@ if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
 } else if (['Bash', 'PowerShell'].includes(tool)) {
   const cmd = String(ti.command ?? '');
   // 2>&1, >/dev/null 같은 출력 정리는 파일 쓰기가 아니므로 빼고 판단한다
-  const cleaned = cmd.replace(/\d*>&\d/g, '').replace(/\d*>\s*(\/dev\/null|\$null|NUL)\b/gi, '');
+  const cleaned = stripData(cmd).replace(/\d*>&\d/g, '').replace(/\d*>\s*(\/dev\/null|\$null|NUL)\b/gi, '');
   const writes = WRITE_RE.test(cleaned);
-  if (writes && STATE_PATH_RE.test(cmd)) deny(MSG_STATE);
+  if (writes && STATE_PATH_RE.test(cleaned)) deny(MSG_STATE);
   if (streakHit.length && TEST_RUN_RE.test(cmd)) deny(msgStreak());
   if (writes && TEST_PATH_RE.test(cleaned) && !unlocked()) deny(MSG_TEST);
+}
+
+// [INFRA-3] 명령 안의 "데이터"를 지운다. 데이터 안의 '>'나 경로는 파일 쓰기가 아니다.
+// (예: 커밋 메시지의 "<noreply@anthropic.com>"를 리다이렉트로 오해하던 오탐)
+// 명령 줄 자체는 남기므로 `cat > test/x <<EOF`, `cat <<EOF > test/x` 같은 진짜 쓰기는 그대로 잡힌다.
+function stripData(s) {
+  return (
+    s
+      // bash heredoc: <<'EOF' 표식 줄의 나머지(리다이렉트 등)는 남기고 본문만 지운다
+      .replace(/<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '<<$2$3')
+      // PowerShell here-string: @' ... '@ / @" ... "@
+      .replace(/@(['"])\r?\n[\s\S]*?\r?\n\1@/g, '@HERE@')
+      // git commit/merge/tag 의 -m "..." / --message='...'
+      .replace(/(^|\s)(-m|--message)(\s+|=)("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1$2 MSG')
+  );
 }
