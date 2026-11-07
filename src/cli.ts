@@ -52,7 +52,11 @@ export function formatSummary(flow: Flow): string {
     const e = flow.error;
     // K12: 실패 칸에는 정해진 코드와 숫자 상태만. 오류 객체의 다른 속성은 읽지 않는다
     const fail = e ? `${safeText(e.code, 32)}${typeof e.status === 'number' ? ` ${e.status}` : ''}` : '';
-    const result = flow.response ? `${Number(flow.response.status)}${fail ? ` ${fail}` : ''}` : fail || '-';
+    const result = flow.tunnel
+      ? `tunnel ${Number(flow.tunnel.bytesUp)}/${Number(flow.tunnel.bytesDown)}B${fail ? ` ${fail}` : ''}` // [TLS-1] 터널: 오간 바이트 수만(내용·주소 없음)
+      : flow.response
+        ? `${Number(flow.response.status)}${fail ? ` ${fail}` : ''}`
+        : fail || '-';
     const line = `${time} ${method} ${host} ${result} ${Math.round(Number(flow.durationMs))}ms`;
     return line.length > LINE_MAX ? `${line.slice(0, LINE_MAX - 1)}…` : line;
   } catch {

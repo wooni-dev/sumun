@@ -21,7 +21,8 @@ const { port } = args as { port: number };
 
 let proxy: Awaited<ReturnType<typeof startProxy>>;
 try {
-  proxy = await startProxy({ port, onFlow: (flow) => void process.stdout.write(`${formatSummary(flow)}\n`) });
+  // [TLS-1] tunnel: true — HTTPS(CONNECT)를 복호화 없이 통과시킨다. 요약 줄에는 대상과 바이트 수만 나온다
+  proxy = await startProxy({ port, tunnel: true, onFlow: (flow) => void process.stdout.write(`${formatSummary(flow)}\n`) });
 } catch (err) {
   // M1, M4: 시작 실패는 코드별 고정 문구. 스택 트레이스를 찍지 않는다
   const code = (err as NodeJS.ErrnoException)?.code;
