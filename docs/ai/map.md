@@ -27,7 +27,7 @@
 | `src/flow/` | 요청·응답을 기록 객체 `Flow`로 바꾼다. 프록시는 `startProxy({ onFlow })`로 요청마다 완료 때 1번 넘긴다 (PRX-2) | #공유 ⚠ proxy, tls, store, dashboard가 모두 의존 | 쿠키·토큰이 원본 그대로 들어 있다 → 출력·디스크 금지(prx2-cases.md F). `response`는 목적지가 보낸 것만, 프록시가 만든 응답은 `error.status`. 본문은 각 1MiB까지(`bodySize`는 전체). [PRX-3] 시작 알림 `onFlowStart`(같은 id), `request.target = { scheme, host, port, path }`(호스트 필터는 이것으로), 실패 코드 `bad-response`/`unreachable` 구분 |
 | `src/store/` | `Flow`를 메모리에 보관하고 새 기록이 생기면 이벤트를 낸다 | #공유 | 본문이 큰 경우 메모리 상한이 필요하다 [추측] |
 | `src/dashboard/` | 웹 서버, WebSocket, 정적 UI | #진입점 | 쿠키와 토큰이 그대로 보이므로 127.0.0.1에만 바인딩한다 |
-| `src/index.ts` | 모든 모듈을 조립해서 실행한다 | #진입점 | |
+| `src/index.ts` | 모든 모듈을 조립해서 실행한다. `npm start [-- --port N]` (PRX-4) | #진입점 | 터미널 출력은 `src/cli.ts`의 요약 줄(메서드·target·상태·시간)만. 경로·쿼리·헤더·본문 금지, 제어 문자 이스케이프(prx4-cases.md) |
 | `test/` | `node:test` 테스트. 로컬 HTTP/HTTPS 서버를 띄워 실제 서버를 대체한다 | | 테스트에서 인터넷에 접속하지 않는다 |
 
 ## 기능별 5개 질문

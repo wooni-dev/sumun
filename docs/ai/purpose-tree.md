@@ -23,7 +23,7 @@
 
 ```
 최종 목적: HTTP(S) 실시간 모니터 + 동작 원리 이해
- ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         🔨 확인 대기(하위 노드 완료, 큰 단위 보고서 승인 전 — AUDIT-5)
+ ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         ✅ (보고서 승인 2026-11-07, 후속 PRX-3·4 완료)
  │   ├ [PRX-T] 큰 단위 테스트: 실제 curl → 프록시 → 목적지 → 기록(Flow)   ✅  → test/prx/PRX-T-regression.test.ts  (2026-11-07 AUDIT-5 결정 (가))
  │   ├ [PRX-1] 요청 중계 (받기 → 실제 서버로 전달 → 응답 돌려주기)       ✅  → src/proxy/server.ts, headers.ts
  │   │         + 열린 프록시·루프·Host·hop-by-hop·오류 응답 (docs/ai/prx1-cases.md 배정 "1")
@@ -35,7 +35,7 @@
  │   ├ [PRX-2b] 기록의 자원 상한·나머지 경계 (prx2-cases.md 배정 "2b")   ✅  → src/proxy/server.ts   의존: PRX-2
  │             (2026-11-07 PRX-2에서 나눔 — 작은 기능 추가, 보고서에 표시)
  │   ├ [PRX-3] Flow 모양 보완: 시작 알림, 목적지 칸(target), 본문 도중 타임아웃, 실패 코드 bad-response   ✅  → src/flow/flow.ts, src/proxy/server.ts  (PRX 보고서 결정 2, 3, 4, 10)
- │   └ [PRX-4] 실행 진입점 `npm start` + 포트 값 검사(A10)   ⬜  → src/index.ts  (PRX 보고서 결정 6)
+ │   └ [PRX-4] 실행 진입점 `npm start` + 포트 값 검사(A10)   ✅  → src/index.ts, src/cli.ts  (PRX 보고서 결정 6)
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  ⬜  의존: PRX-2
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ⬜  → src/tls/
  │   ├ [TLS-2] 루트 CA 생성·보관 ⚠ 개인키 보호                          ⬜  → src/ca/
