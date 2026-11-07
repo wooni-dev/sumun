@@ -3,10 +3,10 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-2] 루트 CA 생성·보관 (feat/TLS-2). 아래 "[TLS-2] 계획".
+- 작업: [TLS-2] 완료(main에 병합). 다음: TLS-2b → TLS-3.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
-  2. [TLS-2] 루트 CA 생성·보관 — 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
+  2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
   3. [TLS-3] 호스트별 인증서 즉석 발급 → [TLS-4] TLS 종료 후 복호화한 요청 기록(`startProxy({ ca, upstreamCA })`, 목적지 인증서 검증 끄지 않음, 불신 시 `bad-certificate` 502, 대기 파일 `src/tls/mitm.ts`를 만든다). TLS-4에서 실제 curl 실측(이 PC의 curl은 Schannel).
   4. TLS 큰 단위 끝: CLAUDE.md "큰 단위" 절차(전체 테스트 → 감사 → 목표 문서만 보는 검토 에이전트 → `docs/for-me/TLS-report.md` → `check-method --id TLS`의 big-unit-todo 포함).
 - TLS 보고서에 올릴 결정 항목(추천으로 진행한 것, 아직 사용자 승인 전): PRX-4 D1~D12′(요약 줄 범위·이스케이프·포트 형식), INFRA-9 a~j(대기 예외), TLS-T 설계(ca 모듈 모양, bad-certificate), TLS-1 결정 0~12(tunnel 옵션, 모든 포트·사설 주소 허용, 이름 한 번 해석 등), 목적 나무에 추가한 노드(PRX-3, PRX-4, TLS-T, TLS-1b).
@@ -502,6 +502,16 @@
   - E74: RSA 2048 생성(Node 비동기) + forge 서명 전체 < 3초, 그동안 이벤트 루프 최대 지연 < 200ms. 판정: 둘 다.
   - E75: stub(빈 함수 export)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
   - E76: 구현 뒤 `npm test`는 실패 0이고 "큰 단위 대기 TLS 2"가 그대로다(TLS-T는 `src/tls/mitm.ts`를 기다림). 판정: 둘 다.
+- 실측 (명령 원문, 결과 전문은 각 커밋 메시지):
+  - E69·E70·E71·E72·E73·E74 일치(51c63ce): `node scripts/probe/tls2-forge.mjs` → md 없음 sha1WithRSAEncryption / 일련번호 "ff00…" Node -0100…·openssl (Negative) / PKCS#8 읽음·verify true / 확장 넷 다 / certutil -dump 0·저장소 3→3줄 / 지연 65~150ms. 첫 실행은 지연 측정 결함(타이머를 서명 직후 멈춤 → 6·13ms), 고쳐서 다시 잼.
+  - E75 일치: stub에서 `npm run test:red -- test/ca/TLS-2.test.ts` → 25개 모두 assertion 실패, 오류 0.
+  - 회귀: `node --test test/ca/TLS-2-regression.test.ts` → 2/2(구현 전). 커밋 전 테스트 결함 2개(git grep 패턴이 옵션으로 읽힘, 전제가 미추적 파일을 찾음)를 고침(2ee599b, O36).
+  - E76 일치(36be5f9): `npm test` → 465 / 463 통과 / 실패 0 / 대기 TLS 2.
+  - 독립 도구(48fea11): `node scripts/probe/tls2-tools.mjs` → openssl이 정책 칸을 모두 읽음, `openssl rsa -check` "RSA key ok", certutil이 Basic Constraints·serverAuth OID를 읽음, 저장소 3→3줄, 키 ACL = SYSTEM·Administrators·본인.
+- 계획과 달라진 점: 구현이 한 번에 통과(25/25). 실측 스크립트 tls2-tools.mjs를 추가. CN 날짜는 UTC 기준(한국 시각과 하루 다를 수 있음 — 문서에 적음).
+- 범위 밖 기록: 커밋된 테스트 주석 두 곳(TLS-T.test.ts 8행, PRX-2-regression.test.ts F6)은 옛 경로 `%APPDATA%`를 가리킨다. PRX-2 F6은 `%APPDATA%\sumun`만 살피므로 이제 `%LOCALAPPDATA%\sumun`은 그 검사 밖이다 [추측: 기록 유출 검사의 빈틈] — 다음에 그 검사를 고칠 때 함께.
+- TLS-3에 넘길 것: forge 서명은 동기(67~148ms). 호스트마다 서명하면 새 사이트마다 프록시가 그만큼 멈춘다 [추측].
+- [TLS-2] 완료: 395dd35..(문서 커밋). 다음: TLS-2b(쓰기 견고성·ACL) 또는 TLS-3.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
