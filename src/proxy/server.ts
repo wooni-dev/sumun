@@ -12,6 +12,7 @@ import http from 'node:http';
 import net from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
+import { createBodyCapture, headerPairs, type Flow } from '../flow/flow.ts';
 
 const BIND_HOST = '127.0.0.1';
 const SELF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -68,6 +69,20 @@ function validateFraming(req: http.IncomingMessage): Rejection | undefined {
 }
 
 const LOOP = { status: 508, message: '508 Loop Detected: 요청이 이 프록시로 되돌아옵니다.' };
+
+// [PRX-2] 구독자를 부른다. 중계가 끝난 뒤(setImmediate) 부르고, 구독자의 예외·reject는 삼킨다.
+// 오류 내용은 출력하지 않는다: 구독자가 기록을 담은 오류를 던질 수 있고, 기록에는 쿠키·토큰이 원본 그대로 있다 (I1, I2, D12)
+function emitFlow(onFlow: (flow: Flow) => unknown, flow: Flow) {
+  const failed = () => process.stderr.write('[sumun] 기록 구독자에서 오류가 났습니다(내용은 출력하지 않음).\n');
+  setImmediate(() => {
+    try {
+      const r = onFlow(flow) as PromiseLike<unknown> | undefined;
+      if (r && typeof r.then === 'function') r.then(undefined, failed);
+    } catch {
+      failed();
+    }
+  });
+}
 const TIMEOUT = 'SUMUN_UPSTREAM_TIMEOUT';
 
 // [PRX-1c] A9: Windows는 다른 프로세스가 0.0.0.0:P를 쓰는 중에도 127.0.0.1:P 바인딩을 허용한다 [확인됨: scripts/probe/prx1c-a9-b6.mjs].
@@ -85,7 +100,9 @@ export async function startProxy({
   port = 8080,
   upstreamTimeoutMs = 30_000, // 목적지가 이 시간 동안 아무것도 보내지 않으면 504 (B8)
   headersTimeoutMs = 30_000, // 클라이언트가 이 시간 안에 헤더를 다 보내지 않으면 408 (D17)
-}: { port?: number; upstreamTimeoutMs?: number; headersTimeoutMs?: number } = {}) {
+  onFlow, // [PRX-2] 요청마다 완료(또는 실패) 때 한 번 기록(Flow)을 받는다. 없으면 기록하지 않는다
+}: { port?: number; upstreamTimeoutMs?: number; headersTimeoutMs?: number; onFlow?: (flow: Flow) => unknown } = {}) {
+  if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
   if (port !== 0 && (await portAnswers(port))) {
     throw Object.assign(new Error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다.`), { code: 'EADDRINUSE' });
   }
@@ -95,22 +112,52 @@ export async function startProxy({
     connectionsCheckingInterval: Math.max(50, Math.min(1000, Math.floor(headersTimeoutMs / 2))), // 타임아웃을 검사하는 주기
   });
   let selfPort = 0;
+  let nextFlowId = 1;
   // 자기 자신으로 보내면 끝없이 자신에게 요청을 보내다 자원이 바닥난다 (B1, B2)
   const isSelf = (url: URL, port: number) => SELF_HOSTS.has(url.hostname.toLowerCase()) && port === selfPort;
 
   server.on('request', (req, res) => {
     const target = req.url ?? '';
+
+    // [PRX-2] 기록. 중계(pipe)는 그대로 두고 'data'를 엿본다. 본문은 앞 1MiB만 별도 메모리에 복사한다 (flow.ts)
+    const startedAt = Date.now();
+    const t0 = performance.now();
+    const reqBody = createBodyCapture();
+    const resBody = createBodyCapture();
+    let response: Omit<NonNullable<Flow['response']>, 'body' | 'bodySize' | 'bodyTruncated'> | undefined;
+    let error: Flow['error'];
+    const fail = (e: NonNullable<Flow['error']>) => (error ??= e); // 처음 일어난 실패가 원인이다
+    if (onFlow) {
+      req.on('data', (c: Buffer) => reqBody.push(c));
+      // 'close'는 응답을 다 보냈을 때와 중간에 끊겼을 때 모두 한 번 온다 → 요청당 정확히 한 번 기록한다 (I5)
+      res.once('close', () => {
+        if (!error && !res.writableFinished) fail({ by: 'client', code: 'aborted' }); // 다 보내기 전에 클라이언트가 끊음 (H10)
+        const rq = reqBody.result();
+        const rs = resBody.result();
+        emitFlow(onFlow, {
+          id: nextFlowId++,
+          startedAt,
+          durationMs: performance.now() - t0,
+          request: { method: req.method ?? '', url: target, httpVersion: req.httpVersion, headers: headerPairs(req.rawHeaders), body: rq.body, bodySize: rq.size, bodyTruncated: rq.truncated },
+          response: response && { ...response, body: rs.body, bodySize: rs.size, bodyTruncated: rs.truncated },
+          error,
+        });
+      });
+    }
+    // 프록시가 직접 거절할 때. 기록의 response 칸은 비워 두고 error에 적는다 (H12)
+    const refuse = (r: Rejection, code: 'rejected' | 'loop' = 'rejected') => (fail({ by: 'proxy', code, status: r.status }), reply(res, r.status, r.message));
+
     // [PRX-1c] Via 검사를 맨 앞에 둔다. 0.0.0.0, localhost. 처럼 주소로 못 알아본 루프는 되돌아온 요청에 붙은 Via로 알아본다 (B3, B4).
     // 다른 검사보다 늦으면, 되돌아온 요청이 다른 이유(origin-form 등)로 400이 되어 루프라는 사실이 가려진다 [확인됨: 실측]
-    if (hasOwnVia(req.headers.via)) return reply(res, LOOP.status, LOOP.message);
+    if (hasOwnVia(req.headers.via)) return refuse(LOOP, 'loop');
     const rejected = validateHost(req) ?? validateFraming(req);
-    if (rejected) return reply(res, rejected.status, rejected.message);
+    if (rejected) return refuse(rejected);
     const checked = validateTarget(target);
-    if ('status' in checked) return reply(res, checked.status, checked.message);
+    if ('status' in checked) return refuse(checked);
     const url = checked.url;
 
     const port = url.port ? Number(url.port) : 80;
-    if (isSelf(url, port)) return reply(res, LOOP.status, LOOP.message);
+    if (isSelf(url, port)) return refuse(LOOP, 'loop');
 
     const headers = stripHopByHop(req.headers);
     headers.host = url.host; // 요청 URL의 호스트가 기준이다. 클라이언트가 보낸 Host는 무시한다 (C14, RFC 9112 3.2.2)
@@ -126,11 +173,13 @@ export async function startProxy({
     });
 
     upstream.on('response', (up) => {
+      response = { status: up.statusCode ?? 0, statusMessage: up.statusMessage ?? '', httpVersion: up.httpVersion, headers: headerPairs(up.rawHeaders) };
+      if (onFlow) up.on('data', (c: Buffer) => resBody.push(c));
       const h = stripHopByHop(up.headers);
       h.via = addVia(up.headers.via);
       res.writeHead(up.statusCode ?? 502, up.statusMessage, h);
       up.pipe(res);
-      up.on('error', () => res.destroy());
+      up.on('error', () => (fail({ by: 'upstream', code: 'aborted' }), res.destroy())); // 목적지가 본문 도중에 끊음 (H11)
     });
     // [PRX-1c] 목적지가 연결만 받고 아무것도 보내지 않으면 끝없이 기다리게 된다 (B8)
     upstream.setTimeout(upstreamTimeoutMs, () => upstream.destroy(Object.assign(new Error('timeout'), { code: TIMEOUT })));
@@ -138,14 +187,18 @@ export async function startProxy({
     // [확인됨: 실측]. 터널로 바꾸면 기록·검사를 벗어난 통로가 생기므로 전환하지 않는다 (E7, h2c 스머글링)
     upstream.on('upgrade', (_up, socket) => {
       socket.destroy();
+      fail({ by: 'upstream', code: 'upgrade', status: 502 });
       if (!res.headersSent) reply(res, 502, '502 Bad Gateway: 목적지가 프로토콜 전환(101)을 요청했지만 이 프록시는 지원하지 않습니다.');
     });
     upstream.on('error', (err: NodeJS.ErrnoException) => {
-      if (res.headersSent) return res.destroy(); // 응답 도중에 끊기면, 잘린 응답을 완전한 것처럼 끝내지 않는다
-      if (err.code === TIMEOUT) reply(res, 504, '504 Gateway Timeout: 목적지 서버가 응답하지 않습니다.');
+      const timeout = err.code === TIMEOUT;
+      if (res.headersSent) return fail({ by: 'upstream', code: timeout ? 'timeout' : 'aborted' }), res.destroy(); // 응답 도중에 끊기면, 잘린 응답을 완전한 것처럼 끝내지 않는다
+      if (res.destroyed) return; // 클라이언트가 먼저 끊어서 우리가 목적지 요청을 멈춘 경우(아래 req 'error'). 원인은 클라이언트다
+      fail({ by: 'upstream', code: timeout ? 'timeout' : 'unreachable', status: timeout ? 504 : 502 });
+      if (timeout) reply(res, 504, '504 Gateway Timeout: 목적지 서버가 응답하지 않습니다.');
       else reply(res, 502, '502 Bad Gateway: 목적지 서버에 연결할 수 없습니다.');
     });
-    req.on('error', () => upstream.destroy());
+    req.on('error', () => (fail({ by: 'client', code: 'aborted' }), upstream.destroy()));
     req.pipe(upstream);
   });
 

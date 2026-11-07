@@ -30,7 +30,9 @@
  │   │         (prx1-cases.md 배정 "1b". 2026-11-07 Claude가 추가 — 작은 기능 추가, 보고서에 표시)
  │   ├ [PRX-1c] 목적지 쪽·견고성: 타임아웃, 대용량 스트리밍, 응답 경계, Upgrade, 포트 설정   ✅  → src/proxy/  의존: PRX-1b
  │   │         (prx1-cases.md 배정 "1c". 2026-11-07 PRX-1b에서 나눔 — 작은 기능 추가, 보고서에 표시)
- │   └ [PRX-2] 요청/응답을 Flow로 기록                                  ⬜  → src/flow/   의존: PRX-1
+ │   ├ [PRX-2] 요청/응답을 Flow로 기록 (prx2-cases.md 배정 "2")         ✅  → src/flow/flow.ts, server.ts   의존: PRX-1
+ │   └ [PRX-2b] 기록의 자원 상한·나머지 경계 (prx2-cases.md 배정 "2b")   ⬜  → src/flow/   의존: PRX-2
+ │             (2026-11-07 PRX-2에서 나눔 — 작은 기능 추가, 보고서에 표시)
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  ⬜  의존: PRX-2
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ⬜  → src/tls/
  │   ├ [TLS-2] 루트 CA 생성·보관 ⚠ 개인키 보호                          ⬜  → src/ca/
