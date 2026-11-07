@@ -171,6 +171,10 @@ export async function startProxy({
       headers,
       agent: false,
     });
+    // [PRX-2b] Node 클라이언트는 응답 헤더가 1,000개를 넘으면 나머지를 오류 없이 버린다(뒤에 있던 Content-Length까지)
+    // [확인됨: scripts/probe/prx2b-g9.mjs]. 그러면 브라우저와 기록이 목적지가 보낸 것과 달라진다 (G9).
+    // 개수 제한을 풀어도 헤더 전체 크기 제한(maxHeaderSize 16KB, 넘으면 502 — PRX-1c D16)이 메모리를 묶는다.
+    upstream.maxHeadersCount = 0;
 
     upstream.on('response', (up) => {
       response = { status: up.statusCode ?? 0, statusMessage: up.statusMessage ?? '', httpVersion: up.httpVersion, headers: headerPairs(up.rawHeaders) };
