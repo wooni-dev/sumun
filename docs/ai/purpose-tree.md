@@ -23,7 +23,8 @@
 
 ```
 최종 목적: HTTP(S) 실시간 모니터 + 동작 원리 이해
- ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         ✅
+ ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         🔨 확인 대기(하위 노드 완료, 큰 단위 보고서 승인 전 — AUDIT-5)
+ │   ├ [PRX-T] 큰 단위 테스트: 실제 curl → 프록시 → 목적지 → 기록(Flow)   🔨  → test/prx/  (2026-11-07 AUDIT-5 결정 (가))
  │   ├ [PRX-1] 요청 중계 (받기 → 실제 서버로 전달 → 응답 돌려주기)       ✅  → src/proxy/server.ts, headers.ts
  │   │         + 열린 프록시·루프·Host·hop-by-hop·오류 응답 (docs/ai/prx1-cases.md 배정 "1")
  │   ├ [PRX-1b] 요청 쪽 방어: 잘못된 URL·Host, 요청 스머글링 파서, 헤더 크기·개수   ✅  → src/proxy/  의존: PRX-1
