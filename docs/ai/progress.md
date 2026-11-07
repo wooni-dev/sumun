@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [INFRA-8] 승인된 방식 보정 O22~O38 반영. 브랜치 feat/INFRA-8. (PRX 보고서는 2026-11-07 "승인")
-- 다음 할 일: PRX 큰 단위 감사 결과(AUDIT-5)에 대한 사용자 결정 → PRX 큰 단위 확인(검토 에이전트 + 중간 확인 보고서) → TLS(보류 중인 O22~O31 검토 포함)
+- 작업: [INFRA-8] 완료(main에 병합). 다음은 Flow 모양 보완(PRX 보고서 결정 2, 3, 4, 10).
+- 다음 할 일: Flow 모양 보완(결정 2, 3, 4, 10, O30 보충) → 실행 진입점 `npm start`(결정 6, A10) → PRX ✅ → TLS(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
@@ -288,6 +288,14 @@
   - E39: 새 테스트는 구현 전에 모두 **assertion**으로 실패한다(새 규칙이 없어 결과가 undefined, `checkBigUnit`은 없어서 import 단계 오류가 나지 않게 테스트가 `mod.checkBigUnit`이 함수인지 assertion으로 먼저 본다). 판정: assertion 실패 수 = 테스트 수, 오류 0개면 일치.
   - E40: 구현 뒤 `node scripts/check-method.mjs --id <노드>`를 PRX-1b, 1c, 2, 2b, T에 돌리면 `predictions-measured`와 `user-doc-lines-valid`가 모두 ✅다. 판정: 5개 노드 × 2규칙 = 10개가 모두 ✅면 일치, 하나라도 ❌면 불일치(원인 기록).
   - E41: `--id PRX`는 큰 단위로 인식해서 하위 노드 6개(PRX-1, 1b, 1c, 2, 2b, T)를 모으고 `big-unit-test`, `big-unit-report`, `big-unit-review`가 ✅다. 판정: 하위 노드 수 6, 세 규칙 모두 ✅면 일치.
+
+- 실측 (명령 원문):
+  - E39 일치: `npm run test:red -- test/infra/check-method-infra8.test.mjs` → 처음 16개 중 1개가 구현 전에 통과("scripts/probe 밖을 바꾼 실측 커밋은 건너뛰지 않음" — 지금은 아무것도 건너뛰지 않으므로) → 회귀 파일로 옮긴 뒤 15개 모두 실패, assertion 15개, 오류 0개.
+  - E40 일치: `for i in PRX-1b PRX-1c PRX-2 PRX-2b PRX-T; do node scripts/check-method.mjs --id $i; done` → predictions-measured·user-doc-lines-valid 10개 모두 ✅.
+  - E41 일치: `node scripts/check-method.mjs --id PRX` → 하위 노드 6개, big-unit-test·report·review ✅. 판정 기준 밖의 추가 결과: sub-nodes ❌(PRX-1 test-commits-test-only, 29891e8 테스트 커밋에 progress.md — AUDIT-4가 지적한 과거 위반).
+  - INFRA-1~7에 같은 검사 → ❌ 없음. `npm test` 273/273(e53f214).
+- 계획과 달라진 점: 없음.
+- [INFRA-8] 완료: 1b1cfaf..(문서 커밋). 다음: Flow 모양 보완(보고서 결정 2, 3, 4, 10 + O30 보충 테스트).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
