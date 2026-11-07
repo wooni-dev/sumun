@@ -3,15 +3,13 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: 세션 종료(2026-11-07). 사용자가 "다음 세션에서 진행"하기로 함. main = fa5a2b3 이후 이 기록 커밋, npm test 201/201.
-- 다음 할 일: [PRX-2] 요청·응답 기록(Flow) → PRX 큰 단위 감사(보류 중인 O22~O31 검토 포함)
-  - PRX-2를 시작하기 전에 사용자에게 먼저 설명하고 결정을 받을 것: 기록에는 쿠키, Authorization, 토큰 같은 민감한 값이 그대로 담긴다. 저장 위치(메모리만 / 파일), 보존 기간, 가리기(마스킹) 여부.
-  - PRX-2는 보안 관련(민감 정보 처리)이므로 O10을 적용한다: 검토 에이전트에게 사례를 먼저 받는다.
-- 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test`(201/201이어야 함) → ⑤ 아래 미확인 항목부터 처리(O6)
-- 미확인(세션 밖 조건 → **새 세션에서 확인 가능**):
-  - ai-research Read 규칙: 새 세션에서 `D:\secretary\ai-research\decisions.md`를 읽을 때 권한 창이 뜨지 않으면 `.claude/settings.json`의 `Read(//d/secretary/ai-research/**)`가 동작하는 것이다.
-  - method-auditor 이름 호출: 새 세션에서 Agent의 subagent_type `method-auditor`로 부를 수 있는지. 안 되면 지금처럼 범용 에이전트가 정의 파일을 읽게 한다.
-  - on-prompt.mjs: 사용자가 "테스트 수정 허용"을 입력하거나 연속 실패 카운터가 0보다 클 때 확인할 수 있다.
+- 작업: [PRX-2] 요청·응답 기록(Flow). 브랜치 feat/PRX-2.
+- 다음 할 일: PRX-2 → PRX-2b → PRX 큰 단위 감사(보류 중인 O22~O31 검토 포함)
+- 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
+- 미확인:
+  - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
+  - method-auditor 이름 호출 — 2026-11-07 새 세션에서 **안 됨** [확인됨: Agent 종류 목록에 없음]. 정의 파일 앞머리(name, description, tools)는 형식이 맞다. 원인은 모른다 [추측: 백그라운드 세션이라 프로젝트 에이전트를 싣지 않았을 수 있음]. 범용 에이전트가 정의 파일을 읽는 방식으로 계속한다.
+  - on-prompt.mjs — 세션 밖 조건 필요("테스트 수정 허용" 입력 또는 연속 실패 카운터 > 0)
 
 ## 로그
 ### 2026-11-07
@@ -185,6 +183,25 @@
   - B9: `node scripts/probe/prx1c-stream.mjs 64|512|2048` → 최대 RSS 96 / 142 / 162MB(시작 61MB), 바이트 일치 → 스트리밍 [확인됨]. 늘어난 부분은 GC가 늦게 치우기 때문으로 본다 [추측].
 - 계획과 달라진 점: isSelf()는 루프백 범위로 넓히지 않았다. 대신 Via 검사를 맨 앞으로 옮겨서 해결했다(주소 표기를 다 열거하지 않아도 됨).
 - [PRX-1c] 완료: 3ec846e..(문서 커밋).
+
+### [PRX-2] 계획
+- 사용자 결정(2026-11-07, "추천대로"): 기록은 **메모리에만**, 본문은 요청·응답 각 **1MB**까지(넘으면 잘림 표시, 중계는 전체), 건수 상한 1,000건은 STO가 맡는다, 민감한 값은 **원본 그대로** 기록하고 가리기는 UI 단계에서 정한다. 대신 기록이 콘솔·오류·디스크로 새지 않는지 테스트한다.
+- 미확인 항목(O13): ai-research Read → 이번 세션은 자동 승인 모드라 판정 불가(세션 밖 조건 유지). method-auditor 이름 호출 → 새 세션에서 안 됨 [확인됨]. on-prompt → 세션 밖 조건 유지.
+- 보안 사례(O10): `docs/ai/prx2-cases.md`(검토 에이전트가 명세만 보고 49개 + 결정 항목 12개). 크기 때문에 PRX-2와 PRX-2b로 나눴다(목적 나무에 PRX-2b 추가). 결정 항목 D1~D12는 Claude 추천으로 진행하고 보고서에 올린다.
+- 한 줄 보고: 목표 = 프록시가 처리한 요청마다 Flow 하나를 구독자에게 넘긴다 / 범위 =
+  - 새 `src/flow/flow.ts`: 타입 `Flow`, 상수 `FLOW_BODY_LIMIT`(1,048,576), 함수 `createBodyCapture(limit)`(→ `push(chunk)`, `result()`: 별도 메모리에 앞 limit바이트 복사, 전체 크기, 잘림 여부), 함수 `headerPairs(rawHeaders)`
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `onFlow`(함수가 아니면 시작 거부), `'request'` 처리기에서 요청·응답 본문을 `pipe`는 그대로 두고 `'data'`로 엿보며 기록, 완료·실패를 한 번만 판정하는 함수 `finish()`, 구독자를 안전하게 부르는 함수 `emitFlow()`(예외·reject를 삼키고 고정 문구 한 줄)
+  - 새 `test/prx/_flow.ts`(함수 `recordingProxy`: 기록을 모으는 프록시, `waitFlows(n, ms)`: 시간 안에 못 받으면 assertion으로 실패), 새 `test/prx/_flow-child.ts`(자식 프로세스로 띄우는 프록시: stdout/stderr 수집용), 새 `test/prx/PRX-2.test.ts`(새 동작), 새 `test/prx/PRX-2-regression.test.ts`(구현 전에도 통과)
+  - `docs/ai/purpose-tree.md`(PRX-2 🔨, PRX-2b 추가), `docs/ai/prx2-cases.md`, `docs/ai/map.md`(Flow 형태, #공유), `docs/for-me/PRX-2.md`
+  - 하지 않을 것 = 배정 "2b"(메모리 측정, 파서 오류, 1xx 등), 건수 상한(STO), 화면, CONNECT 기록(TLS)
+- Flow 형태 [추측: 설계]: `{ id, startedAt(epoch ms), durationMs(단조 시계), request: { method, url(받은 원문), httpVersion, headers: [이름, 값][], body: Buffer, bodySize, bodyTruncated }, response?: { 같은 모양 + status, statusMessage }(목적지가 보낸 것만), error?: { by: 'proxy'|'client'|'upstream', code, status? } }`
+- 예상 [추측]:
+  - E28: stub(`createBodyCapture`가 빈 결과를 내고 server.ts는 `onFlow`를 무시)에서 새 동작 테스트는 모두 **assertion**으로 실패한다(기록이 오지 않음 → `waitFlows`가 시간 초과를 assertion으로 알림). 오류 0개.
+  - E29: 구현 전에도 통과(회귀): F1(오류 응답에 표식 없음), F2의 "정상 요청 때 출력 없음", F6(새 파일 없음), I7의 "구독자 없음 = 정상 동작". 이것들은 기록 기능이 없어도 성립하기 때문이다.
+  - E30: `Buffer.concat`으로 작은 본문을 합치면 결과가 8KB 공유 풀의 일부다(`body.buffer.byteLength > body.length`) → 그대로 쓰면 F9 위반.
+  - E31: Node `rawHeaders`는 순서·대소문자·중복을 보존한다(H5). 응답 쪽도 `up.rawHeaders`로 같다.
+  - E32: 클라이언트가 중간에 끊으면 `res`에 `'close'`가 오고 `'finish'`는 오지 않는다. 이것으로 성공과 중단을 나눌 수 있다.
+  - E33: async 구독자의 reject를 잡지 않으면 자식 프로세스가 종료 코드 1로 죽고 stderr에 reason(표식 포함)이 찍힌다. 구현 전에는 구독자가 불리지 않으므로 이 테스트는 "호출됨" assertion으로 실패한다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
