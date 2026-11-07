@@ -4,7 +4,7 @@
 
 ## 현재
 - 작업: [PRX-2b] 완료(main에 병합). PRX 큰 단위 완료 → 큰 단위 감사.
-- 다음 할 일: PRX 큰 단위 감사(보류 중인 O22~O31 검토 포함)
+- 다음 할 일: PRX 큰 단위 감사 결과(AUDIT-5)에 대한 사용자 결정 → PRX 큰 단위 확인(검토 에이전트 + 중간 확인 보고서) → TLS(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
@@ -237,10 +237,16 @@
   - E34 일치: 회귀 12개. `node --test test/prx/PRX-2b-regression.test.ts` → 12/12.
   - E35 **불일치(개수)**: `node scripts/probe/prx2b-g9.mjs 1999`(2000, 2001, 2500도) → 클라이언트·기록 모두 a 헤더 **1,000개**. 몰래 버린다는 예상은 맞았지만 기준은 2,000이 아니라 1,000이다. 뒤의 Content-Length도 버려졌다 [확인됨].
   - red: `npm run test:red -- test/prx/PRX-2b.test.ts` → assertion 실패 1개, 오류 0개. 구현(`upstream.maxHeadersCount = 0`) 뒤 `npm test` 255/255(a3ade17). 같은 스크립트로 2500·3500 → 전부, 10000·20000·100000 → 502 [확인됨].
-  - E36: `node scripts/probe/prx2b-memory.mjs` → G1 63→138MB(일치), G2 67→119MB(+52, 예상 50 이하를 조금 넘음), G5 67→130MB(일치, 역압 유지), G6 멈춘 동안 298MB, 끊을 때 최대 475MB(+408, 예상 상한 근처) [확인됨].
+  - E36: `node scripts/probe/prx2b-memory.mjs` → G1 63→138MB(일치), G2 67→119MB(+52, 예상 50 이하를 조금 넘음), G5 67→130MB(일치, 역압 유지), G6 멈춘 동안 298MB, 끊을 때 최대 475MB(+408) [확인됨]. ~~예상 상한 근처~~ → **불일치(예상 +200~400MB의 상한 초과)** (AUDIT-5 정정).
 - 결정: D7(진행 중 기록 전체 상한) → 두지 않음, STO의 바이트 상한에서 다시 본다. I6 → 규칙으로 남김(prx2-cases.md).
 - 계획과 달라진 점: 없음(범위대로 server.ts 한 줄 + 테스트 2개 + 실측 2개). 실측 스크립트가 prx2b-memory.mjs 하나에서 prx2b-g9.mjs까지 두 개가 됐다.
 - [PRX-2b] 완료: 67e36be..(문서 커밋). PRX 큰 단위 완료 → 큰 단위 감사.
+
+### [AUDIT-5] PRX 큰 단위 감사 (2026-11-07)
+- 감사 기록: docs/method-feedback.md "[PRX] 큰 단위 감사". 감사자에게는 노드 ID(PRX)만 넘겼다. method-auditor를 이름으로 부를 수 없어 범용 에이전트가 정의 파일을 읽고 따랐다.
+- 범위 정정(O11, 감사 지적): 계획 커밋의 범위에 다음 파일이 없었다 — PRX-1b(71eb378): `test/prx/_prx1b-setup.ts`, `scripts/probe/prx1b-curl.mjs` / PRX-1c(3ec846e): `test/prx/_prx1c-setup.ts`, `scripts/probe/prx1c-a9-b6.mjs` / PRX-2(44878a3): `scripts/probe/prx2-curl.mjs`, `scripts/probe/prx2-node.mjs`. PRX-1 감사의 "도우미도 범위에 적기"를 1b 계획에서 적용했다고 체크했지만, 그 계획에서 setup 도우미가 빠졌다.
+- 바로 고친 것: PRX-1b.md·PRX-1c.md 줄 번호 기준 해시, 위 범위 정정, E36 G6 불일치 표시.
+- 사용자 결정 대기: 큰 단위 확인(검토 에이전트 + 중간 확인 보고서), 큰 단위 테스트 (가)/(나), PRX 상태 🔨 되돌리기, O22~O38 승인.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

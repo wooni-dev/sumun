@@ -48,6 +48,7 @@
 5. (이 문서 커밋)
 
 ## 먼저 볼 코드
+> 줄 번호는 문서 커밋 42cfee0 기준이다. 뒤의 PR(PRX-2, PRX-2b)이 server.ts를 고쳐서 지금 파일과는 다를 수 있다. 함수 이름으로 찾는다. (AUDIT-5)
 - `src/proxy/server.ts:75` — 요청 처리기의 첫 줄들. **Host → 본문 경계 → URL** 순서로 검사하고, 하나라도 걸리면 바로 거부한다.
 - `src/proxy/server.ts:39` — 호스트 없는 URL 검사. `new URL('http:///path')`를 믿지 않고 원문을 직접 본다. URL 표준이 이걸 "호스트가 path인 URL"로 해석하기 때문이다(실측).
 - `src/proxy/server.ts:56` — `validateHost()`. `rawHeaders`(원래 헤더 목록)에서 host가 몇 번 나왔는지 센다. `req.headers`는 Node가 중복을 합쳐 버려서 셀 수 없다.
