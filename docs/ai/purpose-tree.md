@@ -23,8 +23,11 @@
 
 ```
 최종 목적: HTTP(S) 실시간 모니터 + 동작 원리 이해
- ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         ⬜
- │   ├ [PRX-1] 요청 중계 (받기 → 실제 서버로 전달 → 응답 돌려주기)       ⬜  → src/proxy/
+ ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         🔨
+ │   ├ [PRX-1] 요청 중계 (받기 → 실제 서버로 전달 → 응답 돌려주기)       ✅  → src/proxy/server.ts, headers.ts
+ │   │         + 열린 프록시·루프·Host·hop-by-hop·오류 응답 (docs/ai/prx1-cases.md 배정 "1")
+ │   ├ [PRX-1b] 견고성·경계: 타임아웃, 스트리밍, 스머글링 파서, 포트 설정, 업그레이드   ⬜  → src/proxy/  의존: PRX-1
+ │   │         (prx1-cases.md 배정 "1b". 2026-11-07 Claude가 추가 — 작은 기능 추가, 보고서에 표시)
  │   └ [PRX-2] 요청/응답을 Flow로 기록                                  ⬜  → src/flow/   의존: PRX-1
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  ⬜  의존: PRX-2
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ⬜  → src/tls/
