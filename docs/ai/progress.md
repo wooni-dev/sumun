@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-3] 사이트별 인증서 발급 (feat/TLS-3). 아래 "[TLS-3] 계획".
+- 작업: [TLS-3] 완료(main에 병합). 다음: TLS-4.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -562,6 +562,14 @@
   - E90: Node `tls.connect({ ca: 루트, servername: 'localhost' })`가 `['localhost']` 인증서에 성공, `servername: 'other'`면 ERR_TLS_CERT_ALTNAME_INVALID. 판정: 둘 다.
   - E91: stub(`issueCert`가 undefined를 돌려줌)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
   - E92: 구현 뒤 `npm test` 실패 0, 큰 단위 대기 TLS 2(TLS-T는 `src/tls/mitm.ts`를 기다림). 판정: 둘 다.
+- 실측 (명령 원문, 결과 전문은 각 커밋 메시지):
+  - E85·E87·E88·E89·E90 일치, **E86 부분 불일치**(88fe98b): `node scripts/probe/tls3-sign.mjs` 2회 → Node 서명 지연 11·16ms(< 50 일치), forge 동기 43·57ms(예상 "항상 ≥ 50"과 달리 한 번은 밑). 결정 4대로 Node 서명.
+  - E91 일치: stub에서 `npm run test:red -- test/ca/TLS-3.test.ts` → 15개 모두 assertion 실패, 오류 0.
+  - E92 일치(6cff3df): `npm test` → 492 / 490 통과 / 실패 0 / 대기 TLS 2.
+  - 독립 클라이언트(0c45d3d): `node scripts/probe/tls3-openssl.mjs` → localhost·127.0.0.1 "Verify return code: 0 (ok)", other.test "62 (hostname mismatch)".
+- hook 기록(O25): 구현 첫 시도(heredoc 리다이렉트 + 같은 명령에서 테스트 실행)와 구현 커밋(printf 메시지 안의 테스트 경로 + 리다이렉트)이 막힘 → 의도한 보수적 동작. 실행 전에 막혀 바뀐 것 없음. Edit·Write 도구로 나눠서 진행.
+- 계획과 달라진 점: 회귀 파일 없음(구현 전에 통과하는 assertion이 없었다). 실측 스크립트 tls3-openssl.mjs 추가. subject가 비는 경우(64자 넘는 첫 이름) SAN을 critical로(RFC 5280 4.2.1.6) — 사례 표에 없던 것을 구현 중 넣음.
+- [TLS-3] 완료: a5974af..(문서 커밋). 다음: TLS-4(TLS 종료 후 복호화한 요청 기록 — 큰 단위 테스트 TLS-T가 기다리는 `src/tls/mitm.ts`).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
