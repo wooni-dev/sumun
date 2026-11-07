@@ -30,5 +30,5 @@ curl -x http://127.0.0.1:<프록시> -H "Cookie: session=abc" --data-binary hell
 3. (이 문서 커밋)
 
 ## 먼저 볼 코드
-- `test/prx/PRX-T-regression.test.ts:43` — 정상 흐름. curl, 목적지, 기록 세 곳을 차례로 확인한다.
-- `test/prx/PRX-T-regression.test.ts:85` — 닿지 않는 목적지.
+- `test/prx/PRX-T-regression.test.ts:45` — 정상 흐름. curl, 목적지, 기록 세 곳을 차례로 확인한다.
+- `test/prx/PRX-T-regression.test.ts:81` — 닿지 않는 목적지.
