@@ -16,10 +16,15 @@ const stateDir = path.join(projectDir, '.claude', 'state');
 
 const WRITE_RE =
   /(>|\btee\b|\bsed\b[^|]*\s-i|\brm\b|\bmv\b|\bcp\b|\bdel\b|\btouch\b|\btruncate\b|Set-Content|Add-Content|Out-File|Clear-Content|Remove-Item|Move-Item|Copy-Item|New-Item|Rename-Item|\bgit\s+(checkout|restore|reset|rm|mv|stash|apply)\b|writeFile|appendFile|unlink|rmSync|\[IO\.File\])/i;
-const TEST_PATH_RE = /(^|[\s"'=:(\\/])test[\\/]/i;
+// [INFRA-5] 앞 글자에 > , { 추가: `echo x >test/...`, `Remove-Item x,test/...`, `rm {test,x}/...` (우회 사례 26, 29)
+const TEST_PATH_RE = /(^|[\s"'=:(\\/>,{])test[\\/]/i;
 const STATE_PATH_RE = /\.claude[\\/]state/i;
 const TEST_RUN_RE = /\bnpm\s+(run\s+)?test\b|\bnode\s+--test\b|scripts[\\/]test\.mjs/i;
 const PROGRESS = 'docs/ai/progress.md';
+// [INFRA-5] heredoc을 소비하는 실행기 / 셸 확장 (stripData에서 사용)
+const CONSUMER_RE =
+  /\b(bash|sh|zsh|dash|ksh|fish|node|deno|bun|tsx|python[\d.]*|py|perl|ruby|php|pwsh|powershell|cmd|xargs|read|source|eval|exec|iex|Invoke-Expression)\b|(^|[;&|]\s*)\.\s/i;
+const EXPANDS_RE = /\$\(|`/;
 
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const { tool_name: tool, tool_input: ti = {} } = input;
@@ -66,24 +71,55 @@ if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
 } else if (['Bash', 'PowerShell'].includes(tool)) {
   const cmd = String(ti.command ?? '');
   // 2>&1, >/dev/null 같은 출력 정리는 파일 쓰기가 아니므로 빼고 판단한다
-  const cleaned = stripData(cmd).replace(/\d*>&\d/g, '').replace(/\d*>\s*(\/dev\/null|\$null|NUL)\b/gi, '');
+  // [INFRA-5] `>&1/../test/x`처럼 숫자 뒤에 경로가 이어지면 파일 쓰기라서 지우지 않는다 (우회 사례 24)
+  const cleaned = stripData(cmd, tool)
+    .replace(/\d*>&\d(?![\w./\\-])/g, '')
+    .replace(/\d*>\s*(\/dev\/null|\$null|NUL)\b/gi, '');
   const writes = WRITE_RE.test(cleaned);
   if (writes && STATE_PATH_RE.test(cleaned)) deny(MSG_STATE);
   if (streakHit.length && TEST_RUN_RE.test(cmd)) deny(msgStreak());
   if (writes && TEST_PATH_RE.test(cleaned) && !unlocked()) deny(MSG_TEST);
 }
 
-// [INFRA-3] 명령 안의 "데이터"를 지운다. 데이터 안의 '>'나 경로는 파일 쓰기가 아니다.
+// [INFRA-3 → INFRA-5] 명령 안의 "데이터"를 지운다. 데이터 안의 '>'나 경로는 파일 쓰기가 아니다.
 // (예: 커밋 메시지의 "<noreply@anthropic.com>"를 리다이렉트로 오해하던 오탐)
-// 명령 줄 자체는 남기므로 `cat > test/x <<EOF`, `cat <<EOF > test/x` 같은 진짜 쓰기는 그대로 잡힌다.
-function stripData(s) {
-  return (
-    s
-      // bash heredoc: <<'EOF' 표식 줄의 나머지(리다이렉트 등)는 남기고 본문만 지운다
-      .replace(/<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2[ \t]*(?=\n|$)/g, '<<$2$3')
-      // PowerShell here-string: @' ... '@ / @" ... "@
-      .replace(/@(['"])\r?\n[\s\S]*?\r?\n\1@/g, '@HERE@')
-      // git commit/merge/tag 의 -m "..." / --message='...'
-      .replace(/(^|\s)(-m|--message)(\s+|=)("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1$2 MSG')
-  );
+//
+// INFRA-5: 데이터인지 "실행될 코드"인지 확실하지 않으면 지우지 않는다(지우지 않으면 검사 대상으로 남을 뿐이다).
+//  - heredoc 본문을 셸이나 인터프리터가 소비하면 코드다 (bash <<EOF, node <<EOF, xargs, while read …)
+//  - 따옴표 없는 heredoc이나 큰따옴표 안의 $( ), 백틱은 실행된다
+//  - here-string을 파이프로 넘기거나 iex로 실행하면 코드다
+// 이 검사로 못 막는 우회는 실행 후 검사(verify-tests.mjs)가 결과로 잡는다.
+// (CONSUMER_RE, EXPANDS_RE는 파일 위쪽에 선언. 아래에 두면 초기화 전에 쓰여 오류가 난다)
+function stripData(s, tool) {
+  const lineBefore = (str, offset) => str.slice(str.lastIndexOf('\n', offset - 1) + 1, offset);
+
+  if (tool === 'Bash') {
+    // heredoc: <<'EOF' 표식 줄의 나머지(리다이렉트 등)는 남기고 본문만 지운다. <<<(here-string)는 heredoc이 아니다.
+    s = s.replace(/(^|[^<])<<-?(?!<)[ \t]*(['"]?)([A-Za-z_]\w*)\2([^\n]*)\n([\s\S]*?)\n[ \t]*\3[ \t]*(?=\n|$)/g, (m, pre, q, tag, rest, body, offset) => {
+      const line = lineBefore(s, offset) + pre + rest;
+      if (CONSUMER_RE.test(line)) return m;
+      if (!q && EXPANDS_RE.test(body)) return m;
+      return `${pre}<<${tag}${rest}`;
+    });
+  }
+
+  if (tool === 'PowerShell') {
+    // here-string: @' ... '@ / @" ... "@
+    s = s.replace(/@(['"])\r?\n([\s\S]*?)\r?\n\1@([^\n]*)/g, (m, q, body, rest, offset) => {
+      const prefix = lineBefore(s, offset);
+      if (rest.includes('|') || /\b(iex|Invoke-Expression|pwsh|powershell)\b|[&.]\s*$/i.test(prefix)) return m;
+      if (q === '"' && /\$\(/.test(body)) return m;
+      return `@HERE@${rest}`;
+    });
+  }
+
+  // -m "..." / --message='...' 는 git commit/tag/merge의 메시지일 때만 데이터다 (git checkout -m 은 플래그라서 아님)
+  if (/\bgit\s+(commit|tag|merge)\b/i.test(s)) {
+    // PowerShell에서는 \" 가 이스케이프가 아니다 (우회 사례 14)
+    const quoted = tool === 'PowerShell' ? `"[^"]*"|'[^']*'` : `"(?:[^"\\\\]|\\\\.)*"|'[^']*'`;
+    s = s.replace(new RegExp(`(^|\\s)(-m|--message)(\\s+|=)(${quoted})`, 'g'), (m, pre, flag, sep, arg) =>
+      arg.startsWith('"') && EXPANDS_RE.test(arg) ? m : `${pre}${flag} MSG`,
+    );
+  }
+  return s;
 }
