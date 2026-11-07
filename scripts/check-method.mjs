@@ -11,14 +11,19 @@ const PLAN_COMMIT = '계획:';
 const PROGRESS = 'docs/ai/progress.md';
 const TREE = 'docs/ai/purpose-tree.md';
 
-export function checkCommits({ id, commits, docExists }) {
+// 계획 커밋 규칙이 처음 적용된 커밋(INFRA-3 계획). 이보다 앞선 작업은 plan-first를 판정하지 않는다(O14)
+export const PLAN_RULE_SINCE = '77161c1';
+
+export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true }) {
   const results = [];
   const add = (rule, ok, detail) => results.push({ rule, ok, detail });
 
   // [INFRA-4] O3: PR 첫 커밋이 계획 커밋(제목에 "계획:", docs/만 변경)이면 그다음부터 테스트 커밋을 찾는다
   const isPlan = (x) => x.subject.includes(PLAN_COMMIT) && x.files.length > 0 && x.files.every((f) => f.startsWith('docs/'));
   const planned = !!commits[0] && isPlan(commits[0]);
-  add('plan-first', planned, planned ? `계획 커밋 ${commits[0].hash} (예상값을 실측보다 먼저 커밋)` : '계획 커밋 없음 (INFRA-3 이전 작업이면 규칙 도입 전)');
+  if (planned) add('plan-first', true, `계획 커밋 ${commits[0].hash} (예상값을 실측보다 먼저 커밋)`);
+  else if (!planRuleApplies) add('plan-first', null, `규칙 도입(${PLAN_RULE_SINCE}) 전 작업이라 건너뜀`);
+  else add('plan-first', false, '계획 커밋 없음');
   const rest = planned ? commits.slice(1) : commits;
   const first = rest[0];
 
@@ -33,6 +38,15 @@ export function checkCommits({ id, commits, docExists }) {
   add('message-format', badMsg.length === 0, badMsg.length ? `"왜/검증" 누락 → ${badMsg.join(', ')}` : `${commits.length}개 커밋 모두 형식 준수`);
 
   add('user-doc', !!docExists, `docs/for-me/${id}.md ${docExists ? '있음' : '없음'}`);
+
+  // [INFRA-6] O12: "## 먼저 볼 코드" 절에 `파일:줄` 형식이 하나 이상 있는가 (다른 절에 있는 것은 인정하지 않음)
+  if (docText === undefined) add('user-doc-lines', null, '문서 본문을 읽지 않아 건너뜀');
+  else {
+    const start = docText.indexOf('## 먼저 볼 코드');
+    const section = start < 0 ? '' : docText.slice(start).split(/\n## /)[0];
+    const hit = section.match(/`[^`\s]+:\d+/);
+    add('user-doc-lines', !!hit, start < 0 ? '"먼저 볼 코드" 절 없음' : hit ? `파일:줄 있음 (예: ${hit[0]}\`)` : '"먼저 볼 코드"에 파일:줄 없음');
+  }
 
   const progress = commits.some((x) => x.files.includes(PROGRESS));
   add('progress-updated', progress, progress ? '진행 기록 갱신됨' : '진행 기록을 한 번도 갱신하지 않음');
@@ -81,7 +95,21 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
   const cwd = path.resolve(import.meta.dirname, '..');
   const commits = loadCommits(id, cwd);
   const last = commits.at(-1);
-  const results = checkCommits({ id, commits, docExists: last ? docExistsAt(cwd, last.hash, `docs/for-me/${id}.md`) : false });
+  const docPath = `docs/for-me/${id}.md`;
+  // 문서 형식(O12)은 HEAD 기준으로 본다. 나중 PR에서 문서를 보충해도 반영되게 하기 위해서다.
+  let docText = '';
+  try {
+    docText = execFileSync('git', ['show', `HEAD:${docPath}`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {}
+  // 규칙 도입 커밋이 이 작업 첫 커밋의 조상(또는 같은 커밋)이면 규칙이 적용된다
+  let planRuleApplies = false;
+  try {
+    if (commits[0]) {
+      execFileSync('git', ['merge-base', '--is-ancestor', PLAN_RULE_SINCE, commits[0].hash], { cwd, stdio: 'ignore' }); // 조상이 아니면 예외
+      planRuleApplies = true;
+    }
+  } catch {}
+  const results = checkCommits({ id, commits, docExists: last ? docExistsAt(cwd, last.hash, docPath) : false, docText, planRuleApplies });
 
   if (args.includes('--json')) {
     console.log(JSON.stringify({ id, commits, results }, null, 2));
