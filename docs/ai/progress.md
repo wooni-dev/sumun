@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-T] TLS 큰 단위 테스트. 브랜치 feat/TLS-T.
-- 다음 할 일: TLS 큰 단위 — TLS-T(큰 단위 테스트) 먼저, TLS-1(CONNECT 터널)부터. TLS-2(루트 CA)는 개인키 보관 위치와 Windows 인증서 저장소 등록을 사용자에게 먼저 설명·확인(보류 중인 O22~O31 검토 포함)
+- 작업: [TLS-T] 완료(main에 병합). 다음은 [TLS-1] CONNECT 터널.
+- 다음 할 일: TLS 큰 단위 — TLS-1(CONNECT 터널) → TLS-2(루트 CA) → TLS-3 → TLS-4. 진행 상황은 `npm test`의 "큰 단위 대기 TLS" 줄. TLS-2(루트 CA)는 개인키 보관 위치와 Windows 인증서 저장소 등록을 사용자에게 먼저 설명·확인(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
@@ -402,6 +402,12 @@
 - 예상 [추측] (판정 기준 포함):
   - E54: `npm run test:red -- test/tls/TLS-T.test.ts` → 2개 모두 실패. 유형은 **오류**(동적 import한 `src/ca/ca.ts`가 없음)다. 큰 단위 테스트라 아직 없는 모듈을 부르는 것이 정상이다. 판정: 실패 2, 각각 ERR_MODULE_NOT_FOUND면 일치.
   - E55: 테스트 커밋 뒤 `npm test`는 종료 코드 0, 출력에 "큰 단위 대기(todo) TLS: 2개, 그중 실패 2개", 연속 실패 셈에 TLS-T 키가 없다. 판정: 세 가지 모두면 일치.
+
+- 실측 (명령 원문):
+  - E54 일치: `npm run test:red -- test/tls/TLS-T.test.ts` → 2개 모두 실패(todo 2), 오류 2개 ERR_MODULE_NOT_FOUND(src/ca/ca.ts).
+  - E55 일치: `npm test` → 종료 코드 0, tests 368 / pass 366 / fail 0 / todo 2, "큰 단위 대기(todo) TLS: 2개, 그중 실패 2개", `.claude/state/test-streak.json`에 TLS-T 키 0개, last-run.json `full: true, failed: 0, exemptFailed: 2`.
+  - 문서를 쓸 때 줄 번호 두 개를 짐작으로 적었다가 `grep -n`으로 확인해 고쳤다(O34 지침이 실제로 잡음).
+- [TLS-T] 완료: 59f12b6..(문서 커밋). 다음: TLS-1(CONNECT 터널, 복호화 없이 통과) — 보안 사례 먼저(O10).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
