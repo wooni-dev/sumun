@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-2b] 기록의 자원 상한·나머지 경계. 브랜치 feat/PRX-2b.
-- 다음 할 일: PRX-2b → PRX 큰 단위 감사(보류 중인 O22~O31 검토 포함)
+- 작업: [PRX-2b] 완료(main에 병합). PRX 큰 단위 완료 → 큰 단위 감사.
+- 다음 할 일: PRX 큰 단위 감사(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
@@ -232,12 +232,24 @@
   - E35(새 동작): G9 — 목적지가 응답 헤더를 2,500개 보내면 Node 클라이언트가 2,000개 넘는 헤더를 **몰래 버려서**, 클라이언트도 기록도 2,000개만 받는다. 요청 쪽은 PRX-1b D15에서 Node가 431로 거부한다고 확인했다.
   - E36(측정): 기록을 켜도 G1(512MB 응답) 최대 RSS가 PRX-1c B9(142MB)와 비슷하다. G2(1바이트 청크 100만 개)는 시작보다 50MB 넘게 늘지 않는다. G5(클라이언트가 읽지 않음, 목적지 512MB)도 100MB 넘게 늘지 않는다(pipe 역압 유지). G6(연결 200개가 각각 1MB-1 본문을 보내고 멈춤)은 약 200~400MB 늘어난다 → D7 결정 근거.
 
+- 실측 (명령 원문):
+  - 13개를 한 파일(측정용, 커밋하지 않음)에 써서 `node --test`로 PRX-2 구현에 실행 → 11개 통과, 2개 실패. G4 실패는 테스트 결함(G3이 끊은 연결 50개의 기록이 G4로 넘어감) → G3 안에서 `take(50)`으로 받도록 고친 뒤 통과. 진짜 실패는 G9 하나.
+  - E34 일치: 회귀 12개. `node --test test/prx/PRX-2b-regression.test.ts` → 12/12.
+  - E35 **불일치(개수)**: `node scripts/probe/prx2b-g9.mjs 1999`(2000, 2001, 2500도) → 클라이언트·기록 모두 a 헤더 **1,000개**. 몰래 버린다는 예상은 맞았지만 기준은 2,000이 아니라 1,000이다. 뒤의 Content-Length도 버려졌다 [확인됨].
+  - red: `npm run test:red -- test/prx/PRX-2b.test.ts` → assertion 실패 1개, 오류 0개. 구현(`upstream.maxHeadersCount = 0`) 뒤 `npm test` 255/255(a3ade17). 같은 스크립트로 2500·3500 → 전부, 10000·20000·100000 → 502 [확인됨].
+  - E36: `node scripts/probe/prx2b-memory.mjs` → G1 63→138MB(일치), G2 67→119MB(+52, 예상 50 이하를 조금 넘음), G5 67→130MB(일치, 역압 유지), G6 멈춘 동안 298MB, 끊을 때 최대 475MB(+408, 예상 상한 근처) [확인됨].
+- 결정: D7(진행 중 기록 전체 상한) → 두지 않음, STO의 바이트 상한에서 다시 본다. I6 → 규칙으로 남김(prx2-cases.md).
+- 계획과 달라진 점: 없음(범위대로 server.ts 한 줄 + 테스트 2개 + 실측 2개). 실측 스크립트가 prx2b-memory.mjs 하나에서 prx2b-g9.mjs까지 두 개가 됐다.
+- [PRX-2b] 완료: 67e36be..(문서 커밋). PRX 큰 단위 완료 → 큰 단위 감사.
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
 - ✅ (INFRA-5에서 해결) ~~[INFRA-3 보안 회귀]~~ stripData()가 **실행되는** heredoc/here-string 본문(`bash <<EOF`, `sh -s <<EOF`, `@'...'@ | Invoke-Expression`)까지 지워서, 본문 안의 테스트 파일 쓰기를 허용한다. 발견: INFRA-3 감사(2026-11-07). 확인: `node .git/verify-heredoc.cjs` → 3개 모두 allow [확인됨]. 상태 폴더 heredoc은 deny. 제안: INFRA-5(셸·인터프리터에 넘기는 경우는 본문을 지우지 않는다) → 사용자 보고.
 
 - ⚠ [규칙 B 한계, 의도적으로 남김] 상태 폴더(.claude/state/) 쓰기는 실행 전 패턴 검사만 한다. 경로 표기 변형(`.claude/"state"`, `.claude/./state`), python `open(...,'w')`, PowerShell 별칭 `sc`로 우회할 수 있다(guard-bypass-cases.md 31, 36, 38) [추측: 코드 기준]. 사용자 결정(INFRA-5 설계 4번)으로 남겨 둔 한계다. 최종 방어선은 PR 감사와 check-method다.
+
+- ⚠ [PRX-2b 발견, 범위 밖] 목적지 응답을 해석할 수 없을 때(헤더 크기 초과, 깨진 응답 — PRX-1c B11) 기록의 실패 코드가 `unreachable`(연결 불가)로 남는다. 원인을 정확히 보여 주지 못한다. 확인: `node scripts/probe/prx2b-g9.mjs 10000` → error {by: upstream, code: unreachable, status: 502} [확인됨]. 제안: UI에서 실패 이유를 보여 줄 때 코드(예: `bad-response`)를 나눈다.
 
 ## 시도하다 막힌 것
 (없음)

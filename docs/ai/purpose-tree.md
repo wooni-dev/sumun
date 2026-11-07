@@ -23,7 +23,7 @@
 
 ```
 최종 목적: HTTP(S) 실시간 모니터 + 동작 원리 이해
- ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         🔨
+ ├ [PRX] HTTP 프록시 — 왜: 평문 요청을 중계하며 기록하는 뼈대         ✅
  │   ├ [PRX-1] 요청 중계 (받기 → 실제 서버로 전달 → 응답 돌려주기)       ✅  → src/proxy/server.ts, headers.ts
  │   │         + 열린 프록시·루프·Host·hop-by-hop·오류 응답 (docs/ai/prx1-cases.md 배정 "1")
  │   ├ [PRX-1b] 요청 쪽 방어: 잘못된 URL·Host, 요청 스머글링 파서, 헤더 크기·개수   ✅  → src/proxy/  의존: PRX-1
@@ -31,7 +31,7 @@
  │   ├ [PRX-1c] 목적지 쪽·견고성: 타임아웃, 대용량 스트리밍, 응답 경계, Upgrade, 포트 설정   ✅  → src/proxy/  의존: PRX-1b
  │   │         (prx1-cases.md 배정 "1c". 2026-11-07 PRX-1b에서 나눔 — 작은 기능 추가, 보고서에 표시)
  │   ├ [PRX-2] 요청/응답을 Flow로 기록 (prx2-cases.md 배정 "2")         ✅  → src/flow/flow.ts, server.ts   의존: PRX-1
- │   └ [PRX-2b] 기록의 자원 상한·나머지 경계 (prx2-cases.md 배정 "2b")   🔨  → src/flow/   의존: PRX-2
+ │   └ [PRX-2b] 기록의 자원 상한·나머지 경계 (prx2-cases.md 배정 "2b")   ✅  → src/proxy/server.ts   의존: PRX-2
  │             (2026-11-07 PRX-2에서 나눔 — 작은 기능 추가, 보고서에 표시)
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  ⬜  의존: PRX-2
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ⬜  → src/tls/
