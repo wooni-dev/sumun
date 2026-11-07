@@ -41,7 +41,7 @@
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ✅  → src/tls/tunnel.ts  (tls1-cases.md 배정 "1")
  │   ├ [TLS-1b] 터널 견고성: half-close, 대용량, 연결 타임아웃, 동시 300개, 종료   ✅  → src/tls/tunnel.ts  (배정 "1b". 2026-11-07 TLS-1에서 나눔 — 작은 기능 추가)
  │   ├ [TLS-2] 루트 CA 생성·보관 ⚠ 개인키 보호                          ✅  → src/ca/ca.ts  (tls2-cases.md 배정 "2")
- │   ├ [TLS-2b] CA 보관 견고성: 원자적 쓰기, 동시 실행, 심어 둔 링크, 키 파일 ACL   🔨  → src/ca/  의존: TLS-2  (배정 "2b". 2026-11-08 TLS-2에서 나눔 — 작은 기능 추가)
+ │   ├ [TLS-2b] CA 보관 견고성: 원자적 쓰기, 동시 실행, 심어 둔 링크, 키 파일 ACL   ✅  → src/ca/ca.ts  의존: TLS-2  (배정 "2b". 2026-11-08 TLS-2에서 나눔 — 작은 기능 추가)
  │   ├ [TLS-3] 호스트별 인증서 즉석 발급                                 ⬜  → src/ca/     의존: TLS-2
  │   └ [TLS-4] TLS 종료 후 복호화한 요청을 Flow로 기록                   ⬜  → src/tls/    의존: TLS-1, TLS-3
  ├ [STO] 저장소 — 왜: 지나간 요청을 다시 보고 화면에 전달해야 함         ⬜  → src/store/  의존: PRX-2
