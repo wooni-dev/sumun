@@ -3,8 +3,14 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-1] 완료(main에 병합). 다음: TLS-1b(터널 견고성) → TLS-2(루트 CA, 시작 전 사용자 확인).
-- 다음 할 일: TLS 큰 단위 — TLS-1(CONNECT 터널) → TLS-2(루트 CA) → TLS-3 → TLS-4. 진행 상황은 `npm test`의 "큰 단위 대기 TLS" 줄. TLS-2(루트 CA)는 개인키 보관 위치와 Windows 인증서 저장소 등록을 사용자에게 먼저 설명·확인(보류 중인 O22~O31 검토 포함)
+- 작업: 세션 종료(2026-11-07). 사용자가 "다음 세션에서 이어서"하기로 함. main = 5fcce49 이후 이 기록 커밋. `npm test` 428 통과·실패 0·큰 단위 대기 TLS 2(정상 — TLS-4가 `src/tls/mitm.ts`를 만들면 실제 검사가 됨).
+- 다음 할 일(순서):
+  1. [TLS-1b] 터널 견고성 — `docs/ai/tls1-cases.md` 배정 "1b": R6 half-close(FIN 전달), R7 양방향 50~100MB·느린 클라이언트(메모리), R8 연결 타임아웃 504(연결 함수 주입 필요), R12 동시 터널 300개, R13 열린 터널이 있을 때 close()가 정해진 시간 안에 끝남. 정책 결정 없음. 보안 사례는 이미 받음(O10).
+  2. [TLS-2] 루트 CA 생성·보관 — 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%APPDATA%\sumun\ca\`(저장소 밖, 커밋 금지), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
+  3. [TLS-3] 호스트별 인증서 즉석 발급 → [TLS-4] TLS 종료 후 복호화한 요청 기록(`startProxy({ ca, upstreamCA })`, 목적지 인증서 검증 끄지 않음, 불신 시 `bad-certificate` 502, 대기 파일 `src/tls/mitm.ts`를 만든다). TLS-4에서 실제 curl 실측(이 PC의 curl은 Schannel).
+  4. TLS 큰 단위 끝: CLAUDE.md "큰 단위" 절차(전체 테스트 → 감사 → 목표 문서만 보는 검토 에이전트 → `docs/for-me/TLS-report.md` → `check-method --id TLS`의 big-unit-todo 포함).
+- TLS 보고서에 올릴 결정 항목(추천으로 진행한 것, 아직 사용자 승인 전): PRX-4 D1~D12′(요약 줄 범위·이스케이프·포트 형식), INFRA-9 a~j(대기 예외), TLS-T 설계(ca 모듈 모양, bad-certificate), TLS-1 결정 0~12(tunnel 옵션, 모든 포트·사설 주소 허용, 이름 한 번 해석 등), 목적 나무에 추가한 노드(PRX-3, PRX-4, TLS-T, TLS-1b).
+- 사용자에게 제안해 둔 것(범위 밖, 결정 대기): 테스트 코드가 `.claude/state/`에 직접 써서 멈춤 장치를 무력화할 수 있는 빈틈(INFRA-9 사례 12) — 별도 작은 단위로.
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
   - ai-research Read 규칙 — 세션 밖 조건 필요(자동 승인 모드가 아닌 새 세션에서 읽을 때 권한 창이 뜨는지)
