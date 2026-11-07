@@ -6,7 +6,7 @@
 - 작업: [TLS-1b] 완료(main에 병합). `npm test` 438개 중 436 통과·실패 0·큰 단위 대기 TLS 2.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
-  2. [TLS-2] 루트 CA 생성·보관 — 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%APPDATA%\sumun\ca\`(저장소 밖, 커밋 금지), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
+  2. [TLS-2] 루트 CA 생성·보관 — 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
   3. [TLS-3] 호스트별 인증서 즉석 발급 → [TLS-4] TLS 종료 후 복호화한 요청 기록(`startProxy({ ca, upstreamCA })`, 목적지 인증서 검증 끄지 않음, 불신 시 `bad-certificate` 502, 대기 파일 `src/tls/mitm.ts`를 만든다). TLS-4에서 실제 curl 실측(이 PC의 curl은 Schannel).
   4. TLS 큰 단위 끝: CLAUDE.md "큰 단위" 절차(전체 테스트 → 감사 → 목표 문서만 보는 검토 에이전트 → `docs/for-me/TLS-report.md` → `check-method --id TLS`의 big-unit-todo 포함).
 - TLS 보고서에 올릴 결정 항목(추천으로 진행한 것, 아직 사용자 승인 전): PRX-4 D1~D12′(요약 줄 범위·이스케이프·포트 형식), INFRA-9 a~j(대기 예외), TLS-T 설계(ca 모듈 모양, bad-certificate), TLS-1 결정 0~12(tunnel 옵션, 모든 포트·사설 주소 허용, 이름 한 번 해석 등), 목적 나무에 추가한 노드(PRX-3, PRX-4, TLS-T, TLS-1b).
