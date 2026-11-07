@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/secretary/ai-research/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\"",
+            "timeout": 15,
+            "onFailure": "block",
+            "statusMessage": "규칙 검사 중"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/on-prompt.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
