@@ -12,7 +12,7 @@ import http from 'node:http';
 import net from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
-import { createBodyCapture, headerPairs, type Flow } from '../flow/flow.ts';
+import { createBodyCapture, headerPairs, rawPath, parseTarget, type Flow, type FlowStart } from '../flow/flow.ts';
 
 const BIND_HOST = '127.0.0.1';
 const SELF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -22,12 +22,7 @@ function reply(res: http.ServerResponse, status: number, message: string) {
   res.end(`${message}\n`);
 }
 
-// "http://host:port/path?q#frag" → 경로 부분 원문 "/path?q". URL 객체로 다시 조립하지 않는다:
-// URL은 ".."을 정리하고 일부 문자를 인코딩해서, 목적지가 받는 경로가 원래와 달라진다 (사례 C9).
-function rawPath(target: string): string {
-  const rest = target.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, '').replace(/#.*$/s, '');
-  return rest.startsWith('/') ? rest : `/${rest}`;
-}
+// rawPath(경로 원문, 사례 C9)는 [PRX-3]에서 flow.ts로 옮겼다. 기록의 target.path와 같은 규칙을 쓰기 위해서다
 
 type Rejection = { status: number; message: string };
 const bad = (message: string): Rejection => ({ status: 400, message: `400 Bad Request: ${message}` });
@@ -72,7 +67,8 @@ const LOOP = { status: 508, message: '508 Loop Detected: 요청이 이 프록시
 
 // [PRX-2] 구독자를 부른다. 중계가 끝난 뒤(setImmediate) 부르고, 구독자의 예외·reject는 삼킨다.
 // 오류 내용은 출력하지 않는다: 구독자가 기록을 담은 오류를 던질 수 있고, 기록에는 쿠키·토큰이 원본 그대로 있다 (I1, I2, D12)
-function emitFlow(onFlow: (flow: Flow) => unknown, flow: Flow) {
+// [PRX-3] 시작 알림(onFlowStart)에도 같은 방식을 쓴다
+function emitFlow<T>(onFlow: (flow: T) => unknown, flow: T) {
   const failed = () => process.stderr.write('[sumun] 기록 구독자에서 오류가 났습니다(내용은 출력하지 않음).\n');
   setImmediate(() => {
     try {
@@ -101,8 +97,18 @@ export async function startProxy({
   upstreamTimeoutMs = 30_000, // 목적지가 이 시간 동안 아무것도 보내지 않으면 504 (B8)
   headersTimeoutMs = 30_000, // 클라이언트가 이 시간 안에 헤더를 다 보내지 않으면 408 (D17)
   onFlow, // [PRX-2] 요청마다 완료(또는 실패) 때 한 번 기록(Flow)을 받는다. 없으면 기록하지 않는다
-}: { port?: number; upstreamTimeoutMs?: number; headersTimeoutMs?: number; onFlow?: (flow: Flow) => unknown } = {}) {
+  onFlowStart, // [PRX-3] 결정 2: 요청을 받자마자 한 번 시작 알림을 받는다(같은 요청의 Flow와 id가 같다). 실시간 목록용
+  upstreamBodyTimeoutMs = 300_000, // [PRX-3] 결정 4: 응답 헤더를 받은 뒤에는 이 시간(5분) 동안 아무것도 오지 않을 때만 끊는다(SSE·롱폴)
+}: {
+  port?: number;
+  upstreamTimeoutMs?: number;
+  headersTimeoutMs?: number;
+  onFlow?: (flow: Flow) => unknown;
+  onFlowStart?: (start: FlowStart) => unknown;
+  upstreamBodyTimeoutMs?: number;
+} = {}) {
   if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
+  if (onFlowStart !== undefined && typeof onFlowStart !== 'function') throw new TypeError('onFlowStart는 함수여야 합니다.');
   if (port !== 0 && (await portAnswers(port))) {
     throw Object.assign(new Error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다.`), { code: 'EADDRINUSE' });
   }
@@ -122,6 +128,10 @@ export async function startProxy({
     // [PRX-2] 기록. 중계(pipe)는 그대로 두고 'data'를 엿본다. 본문은 앞 1MiB만 별도 메모리에 복사한다 (flow.ts)
     const startedAt = Date.now();
     const t0 = performance.now();
+    const id = nextFlowId++; // [PRX-3] 시작 알림과 끝 기록이 같은 id를 갖도록 요청을 받을 때 매긴다
+    // 요청 머리. 시작 알림과 끝 기록에 따로 만들어 넘긴다: 한 구독자가 고쳐도 다른 쪽에 번지지 않게 (PRX-2 I4)
+    const head = () => ({ method: req.method ?? '', url: target, httpVersion: req.httpVersion, headers: headerPairs(req.rawHeaders), target: parseTarget(target) });
+    if (onFlowStart) emitFlow(onFlowStart, { id, startedAt, request: head() });
     const reqBody = createBodyCapture();
     const resBody = createBodyCapture();
     let response: Omit<NonNullable<Flow['response']>, 'body' | 'bodySize' | 'bodyTruncated'> | undefined;
@@ -135,10 +145,10 @@ export async function startProxy({
         const rq = reqBody.result();
         const rs = resBody.result();
         emitFlow(onFlow, {
-          id: nextFlowId++,
+          id,
           startedAt,
           durationMs: performance.now() - t0,
-          request: { method: req.method ?? '', url: target, httpVersion: req.httpVersion, headers: headerPairs(req.rawHeaders), body: rq.body, bodySize: rq.size, bodyTruncated: rq.truncated },
+          request: { ...head(), body: rq.body, bodySize: rq.size, bodyTruncated: rq.truncated },
           response: response && { ...response, body: rs.body, bodySize: rs.size, bodyTruncated: rs.truncated },
           error,
         });
@@ -177,6 +187,8 @@ export async function startProxy({
     upstream.maxHeadersCount = 0;
 
     upstream.on('response', (up) => {
+      // [PRX-3] 결정 4: 응답 헤더가 왔으니 본문 도중 무응답 제한으로 바꾼다. 30초 넘게 쉬는 SSE·롱폴이 끊기지 않게 [확인됨: 검토 에이전트 실측]
+      upstream.setTimeout(upstreamBodyTimeoutMs);
       response = { status: up.statusCode ?? 0, statusMessage: up.statusMessage ?? '', httpVersion: up.httpVersion, headers: headerPairs(up.rawHeaders) };
       if (onFlow) up.on('data', (c: Buffer) => resBody.push(c));
       const h = stripHopByHop(up.headers);
@@ -198,7 +210,10 @@ export async function startProxy({
       const timeout = err.code === TIMEOUT;
       if (res.headersSent) return fail({ by: 'upstream', code: timeout ? 'timeout' : 'aborted' }), res.destroy(); // 응답 도중에 끊기면, 잘린 응답을 완전한 것처럼 끝내지 않는다
       if (res.destroyed) return; // 클라이언트가 먼저 끊어서 우리가 목적지 요청을 멈춘 경우(아래 req 'error'). 원인은 클라이언트다
-      fail({ by: 'upstream', code: timeout ? 'timeout' : 'unreachable', status: timeout ? 504 : 502 });
+      // [PRX-3] 결정 10: 응답은 왔지만 HTTP로 해석할 수 없으면(Node의 HPE_* 오류) bad-response, 연결 자체가 안 되면 unreachable
+      // [확인됨: scripts/probe/prx3-errcode.mjs — 깨진 상태 줄 HPE_INVALID_CONSTANT, 헤더 초과 HPE_HEADER_OVERFLOW, 닫힌 포트 ECONNREFUSED]
+      const code = timeout ? 'timeout' : err.code?.startsWith('HPE_') ? 'bad-response' : 'unreachable';
+      fail({ by: 'upstream', code, status: timeout ? 504 : 502 });
       if (timeout) reply(res, 504, '504 Gateway Timeout: 목적지 서버가 응답하지 않습니다.');
       else reply(res, 502, '502 Bad Gateway: 목적지 서버에 연결할 수 없습니다.');
     });
