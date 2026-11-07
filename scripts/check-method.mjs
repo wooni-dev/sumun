@@ -12,7 +12,7 @@ const PROGRESS = 'docs/ai/progress.md';
 const TREE = 'docs/ai/purpose-tree.md';
 
 // 계획 커밋 규칙이 처음 적용된 커밋(INFRA-3 계획). 이보다 앞선 작업은 plan-first를 판정하지 않는다(O14)
-export const PLAN_RULE_SINCE = '77161c1';
+export const PLAN_RULE_SINCE = '77161c18e74d265ac56eeca3d8bd3863f621ece5'; // [INFRA-7] 커밋이 늘어도 모호하지 않게 전체 해시로
 
 export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true }) {
   const results = [];
@@ -44,7 +44,8 @@ export function checkCommits({ id, commits, docExists, docText, planRuleApplies 
   else {
     const start = docText.indexOf('## 먼저 볼 코드');
     const section = start < 0 ? '' : docText.slice(start).split(/\n## /)[0];
-    const hit = section.match(/`[^`\s]+:\d+/);
+    // [INFRA-7] 파일 부분은 경로(/ 포함)이거나 확장자(.md, .mjs …)로 끝나야 한다. 127.0.0.1:8080, localhost:3000, http://… 은 제외
+    const hit = section.match(/`(?![^`]*:\/\/)[^`\s]*(?:\/[^`\s]*|\.[A-Za-z][\w-]*):\d+/);
     add('user-doc-lines', !!hit, start < 0 ? '"먼저 볼 코드" 절 없음' : hit ? `파일:줄 있음 (예: ${hit[0]}\`)` : '"먼저 볼 코드"에 파일:줄 없음');
   }
 
