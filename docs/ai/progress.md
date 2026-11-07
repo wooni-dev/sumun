@@ -100,6 +100,14 @@
   - 관찰: `sed -i`로 넣는 글자 안에 `test/` 경로가 있으면 실행 전 검사가 막는다. 의도한 보수적 동작이라 Edit 도구로 우회했다.
 - [INFRA-6] 완료: 9c99332..(문서 커밋), npm test 96/96. 승인 상태는 docs/method-feedback.md의 "승인 상태" 표를 본다.
 
+### [INFRA-7] 계획
+- 근거: AUDIT-3 보고서 승인(1~4). 승인 상태는 docs/method-feedback.md "승인 상태" 표.
+- 미확인 항목(O13): on-prompt 작동(세션 밖 조건: 사용자가 "테스트 수정 허용"을 입력하거나 카운터가 0보다 클 때), ai-research Read 규칙과 method-auditor 이름 호출(세션 밖 조건: 새 세션 시작 시). 이번에 바뀐 것 없음.
+- 한 줄 보고: 목표 = 문서 검사의 주소:포트 오인 수정 + O18~O20, 감사 주기 반영 / 범위 = `scripts/check-method.mjs`의 `checkCommits()` 안 `user-doc-lines` 정규식과 `PLAN_RULE_SINCE`(전체 해시로), 새 `test/infra/check-method-doc-addr.test.mjs`, `CLAUDE.md` 개발 방식 절(O18, O19, O20, 감사 주기), `docs/` / 하지 않을 것 = O22~O25(보류), hook 변경. 보안·차단 규칙이 아니라서 O10(우회 사례 먼저)은 해당 없음. 감사 주기 결정에 따라 이 PR은 감사하지 않고 check-method만 돌린다.
+- 예상 [추측]:
+  - E17: 새 테스트(`` `127.0.0.1:8080` ``, `` `localhost:3000` ``, `` `http://localhost:8080` ``만 있으면 user-doc-lines 위반)는 구현 전에 assertion 실패한다. 지금 정규식이 셋 다 파일:줄로 인정하기 때문이다(AUDIT-3 감사자의 추측이 맞다면).
+  - E18: 기존 check-method-doc 테스트(`src/proxy/server.ts:12`는 인정)는 구현 뒤에도 통과한다. INFRA-1~6 문서는 user-doc-lines ✅를 유지한다.
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
