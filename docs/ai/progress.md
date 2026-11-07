@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [INFRA-9] 큰 단위 테스트 todo 예외. 브랜치 feat/INFRA-9. 다음: TLS-T → TLS-1.
+- 작업: [INFRA-9] 완료(main에 병합). 다음: TLS-T(큰 단위 테스트) → TLS-1.
 - 다음 할 일: TLS 큰 단위 — TLS-T(큰 단위 테스트) 먼저, TLS-1(CONNECT 터널)부터. TLS-2(루트 CA)는 개인키 보관 위치와 Windows 인증서 저장소 등록을 사용자에게 먼저 설명·확인(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
@@ -375,6 +375,15 @@
   - E52: 구현 뒤 `npm test` 전체가 통과하고, 출력의 "큰 단위 대기"는 0개다(아직 `-T` 파일이 없음). 판정: 실패 0, 대기 0.
   - E53: `node scripts/check-method.mjs --id PRX` → big-unit-todo ✅(PRX는 `-T` todo가 없고 마지막 전체 실행 실패 0). 판정: ✅.
 
+- 실측 (명령 원문):
+  - E50 일치: `npm run test:red -- test/infra/streak-bigunit.test.mjs` → 처음 36개 중 1개(사례 10)가 구현 전에 통과 → 회귀 파일로 옮긴 뒤 35개 모두 실패, assertion 35개, 오류 0개.
+  - E51 일치: streak.mjs만 바꾼 시점에 `node --test test/infra/streak-bigunit.test.mjs test/infra/streak-bigunit-regression.test.mjs test/infra/streak.test.mjs` → 36/39(실패 3개는 check-method 규칙), 기존 streak.test.mjs 전부 통과.
+  - E52 일치: `npm test` → 366/366, 큰 단위 대기 출력 없음, last-run.json `full: true, failed: 0, bigTodo: {}`(8ff7a55).
+  - E53 일치: `node scripts/check-method.mjs --id PRX` → big-unit-todo ✅.
+  - 통합 실측: `node scripts/probe/infra9-bigtodo.mjs` → 대기 3회 셈 0·멈춤 없음 / 일반 실패 3회째 멈춤 / 대기 파일 생성 뒤 셈 1 [확인됨].
+- 계획과 달라진 점: 계획에 없던 last-run.json 칸 `exemptFailed`를 추가했다(예외로 뺀 실패 수를 따로 남김). 실측 스크립트 1개 추가.
+- [INFRA-9] 완료: 536afb0..(문서 커밋). 다음: TLS-T(큰 단위 테스트).
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
@@ -383,6 +392,9 @@
 - ⚠ [규칙 B 한계, 의도적으로 남김] 상태 폴더(.claude/state/) 쓰기는 실행 전 패턴 검사만 한다. 경로 표기 변형(`.claude/"state"`, `.claude/./state`), python `open(...,'w')`, PowerShell 별칭 `sc`로 우회할 수 있다(guard-bypass-cases.md 31, 36, 38) [추측: 코드 기준]. 사용자 결정(INFRA-5 설계 4번)으로 남겨 둔 한계다. 최종 방어선은 PR 감사와 check-method다.
 
 - ⚠ [PRX-2b 발견, 범위 밖] 목적지 응답을 해석할 수 없을 때(헤더 크기 초과, 깨진 응답 — PRX-1c B11) 기록의 실패 코드가 `unreachable`(연결 불가)로 남는다. 원인을 정확히 보여 주지 못한다. 확인: `node scripts/probe/prx2b-g9.mjs 10000` → error {by: upstream, code: unreachable, status: 502} [확인됨]. 제안: UI에서 실패 이유를 보여 줄 때 코드(예: `bad-response`)를 나눈다.
+
+- ⚠ [INFRA-9 검토에서 발견, 범위 밖 — 사용자 보고] 테스트 코드가 `.claude/state/`(junit.xml, test-streak.json)에 직접 쓸 수 있다. hook은 도구 명령만 검사하고 `npm test`가 실행하는 코드는 보지 않는다. 멈춤 장치 전체를 무력화할 수 있다(infra9-cases.md 사례 12) [추측: 시험하지 않음]. 제안: 실행 전후 state 해시 비교 또는 state를 실행기만 쓰는 위치로 — 별도 작은 단위.
+- [INFRA-9 검토에서 발견, 범위 밖] `{ skip }`·`--test-skip-pattern`은 셈을 초기화한다(사례 13). 같은 이름 테스트가 셈을 섞는다(사례 17). 부모 테스트 실패가 junit에서 빠진다(검토자 실측).
 
 ## 시도하다 막힌 것
 (없음)
