@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-1] 감사
-- 다음 할 일: PRX-1 감사 → 사용자 보고 → [PRX-1b]
+- 작업: PRX-1 감사 후속 끝 → 사용자 보고
+- 다음 할 일: 결정 항목(PRX-1.md) 확인 → [PRX-1b]
 - 미확인: on-prompt.mjs 실제 작동, ai-research Read 규칙(새 세션), method-auditor 이름 호출(새 세션)
 
 ## 로그
@@ -134,6 +134,7 @@
   - ⚠ **불일치(예상 밖)**: 같은 실행에서 `curl -x ... https://example.com/`(CONNECT) → 501을 보낸 직후 curl이 연결을 리셋(ECONNRESET)했고, 소켓 오류 처리기가 없어 **프록시 프로세스가 죽었다** [확인됨]. 테스트 C18은 통과했다. 테스트 클라이언트는 연결을 정상적으로 닫았기 때문이다. 실제로는 HTTPS에 한 번만 접속해도 프록시가 꺼진다. → PRX-1 범위(C18 "멈추지 않음") 안에서 재현 테스트를 먼저 쓰고 고친다.
   - 실측 방법 오류 1건: 처음에 `execFileSync`로 curl을 실행해서 같은 프로세스의 프록시가 응답하지 못했다(모두 시간 초과) → 비동기 `execFile`로 바꿈.
   - 고친 뒤 재실측(2f1a5a9): 같은 스크립트로 CONNECT → 501(curl 종료 코드 7), 자기 자신 → 508, 이어서 `/still-alive` → 200, `curl http://127.0.0.1:18088/x`(origin-form) → 400 [확인됨]. npm test 121/121.
+- 실측 재현 스크립트(O19, PRX-1 감사 지적): `node scripts/probe/prx1-curl.mjs` → 1) 200, 목적지가 `GET /hello?q=1 via=1.1 sumun host=127.0.0.1:18090 proxy-connection=undefined`를 받음 / 2) 501(curl 종료 코드 7) / 3) 508 / 4) 200 / 5) 400 [확인됨: AUDIT-4].
 - [PRX-1] 완료: 026ecac..(문서 커밋). 결정 항목(추천안으로 진행, 보고서에 올림): 루프 508, Connection에 나열된 헤더는 RFC대로 제거(Host, Content-Length 제외), PRX-1b 노드 추가.
 
 ## 범위 밖 문제
