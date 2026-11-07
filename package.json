@@ -11,5 +11,8 @@
     "start": "node src/index.ts",
     "test": "node scripts/test.mjs",
     "test:red": "node scripts/test.mjs --red"
+  },
+  "dependencies": {
+    "node-forge": "1.4.3"
   }
 }
