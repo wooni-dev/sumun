@@ -9,6 +9,7 @@
 //  - 오류 응답은 고정 문구의 text/plain이다. 요청 내용을 되돌려 보내지 않는다 (B12: 브라우저는 프록시의 오류 페이지를
 //    목적지 사이트의 출처로 보여 주므로, 입력을 반영하면 그 사이트에 XSS가 생긴다).
 import http from 'node:http';
+import net from 'node:net';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
 
@@ -66,12 +67,42 @@ function validateFraming(req: http.IncomingMessage): Rejection | undefined {
   if (req.httpVersion === '1.0' && req.headers['transfer-encoding'] !== undefined) return bad('HTTP/1.0 요청에는 Transfer-Encoding을 쓸 수 없습니다.');
 }
 
-export async function startProxy({ port = 8080 }: { port?: number } = {}) {
-  const server = http.createServer();
+const LOOP = { status: 508, message: '508 Loop Detected: 요청이 이 프록시로 되돌아옵니다.' };
+const TIMEOUT = 'SUMUN_UPSTREAM_TIMEOUT';
+
+// [PRX-1c] A9: Windows는 다른 프로세스가 0.0.0.0:P를 쓰는 중에도 127.0.0.1:P 바인딩을 허용한다 [확인됨: scripts/probe/prx1c-a9-b6.mjs].
+// 그러면 브라우저 트래픽이 어느 프로그램으로 갈지 예측할 수 없다. 그래서 시작하기 전에 그 포트로 접속해 보고, 누가 응답하면 시작하지 않는다.
+// (0.0.0.0에 잠깐 바인딩해 보는 방법은 Windows 방화벽 "액세스 허용" 창을 띄울 수 있어서 쓰지 않는다 — 사례 A3)
+function portAnswers(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const s = net.connect(port, BIND_HOST, () => (s.destroy(), resolve(true)));
+    s.setTimeout(500, () => (s.destroy(), resolve(false)));
+    s.on('error', () => resolve(false));
+  });
+}
+
+export async function startProxy({
+  port = 8080,
+  upstreamTimeoutMs = 30_000, // 목적지가 이 시간 동안 아무것도 보내지 않으면 504 (B8)
+  headersTimeoutMs = 30_000, // 클라이언트가 이 시간 안에 헤더를 다 보내지 않으면 408 (D17)
+}: { port?: number; upstreamTimeoutMs?: number; headersTimeoutMs?: number } = {}) {
+  if (port !== 0 && (await portAnswers(port))) {
+    throw Object.assign(new Error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다.`), { code: 'EADDRINUSE' });
+  }
+  const server = http.createServer({
+    headersTimeout: headersTimeoutMs,
+    requestTimeout: 0, // 요청 전체 시간은 제한하지 않는다(큰 업로드). 느린 "헤더"만 끊는다
+    connectionsCheckingInterval: Math.max(50, Math.min(1000, Math.floor(headersTimeoutMs / 2))), // 타임아웃을 검사하는 주기
+  });
   let selfPort = 0;
+  // 자기 자신으로 보내면 끝없이 자신에게 요청을 보내다 자원이 바닥난다 (B1, B2)
+  const isSelf = (url: URL, port: number) => SELF_HOSTS.has(url.hostname.toLowerCase()) && port === selfPort;
 
   server.on('request', (req, res) => {
     const target = req.url ?? '';
+    // [PRX-1c] Via 검사를 맨 앞에 둔다. 0.0.0.0, localhost. 처럼 주소로 못 알아본 루프는 되돌아온 요청에 붙은 Via로 알아본다 (B3, B4).
+    // 다른 검사보다 늦으면, 되돌아온 요청이 다른 이유(origin-form 등)로 400이 되어 루프라는 사실이 가려진다 [확인됨: 실측]
+    if (hasOwnVia(req.headers.via)) return reply(res, LOOP.status, LOOP.message);
     const rejected = validateHost(req) ?? validateFraming(req);
     if (rejected) return reply(res, rejected.status, rejected.message);
     const checked = validateTarget(target);
@@ -79,10 +110,7 @@ export async function startProxy({ port = 8080 }: { port?: number } = {}) {
     const url = checked.url;
 
     const port = url.port ? Number(url.port) : 80;
-    // 자기 자신으로 보내면 끝없이 자신에게 요청을 보내다 자원이 바닥난다 (B1, B2). 주소로 못 잡은 루프는 Via로 잡는다 (B4)
-    if ((SELF_HOSTS.has(url.hostname.toLowerCase()) && port === selfPort) || hasOwnVia(req.headers.via)) {
-      return reply(res, 508, '508 Loop Detected: 요청이 이 프록시로 되돌아옵니다.');
-    }
+    if (isSelf(url, port)) return reply(res, LOOP.status, LOOP.message);
 
     const headers = stripHopByHop(req.headers);
     headers.host = url.host; // 요청 URL의 호스트가 기준이다. 클라이언트가 보낸 Host는 무시한다 (C14, RFC 9112 3.2.2)
@@ -104,9 +132,18 @@ export async function startProxy({ port = 8080 }: { port?: number } = {}) {
       up.pipe(res);
       up.on('error', () => res.destroy());
     });
-    upstream.on('error', () => {
-      if (!res.headersSent) reply(res, 502, '502 Bad Gateway: 목적지 서버에 연결할 수 없습니다.');
-      else res.destroy(); // 응답 도중에 끊기면, 잘린 응답을 완전한 것처럼 끝내지 않는다
+    // [PRX-1c] 목적지가 연결만 받고 아무것도 보내지 않으면 끝없이 기다리게 된다 (B8)
+    upstream.setTimeout(upstreamTimeoutMs, () => upstream.destroy(Object.assign(new Error('timeout'), { code: TIMEOUT })));
+    // [PRX-1c] 목적지가 101(프로토콜 전환)을 보내면 Node는 'upgrade'를 낸다. 처리하지 않으면 클라이언트에 아무 응답도 가지 않는다
+    // [확인됨: 실측]. 터널로 바꾸면 기록·검사를 벗어난 통로가 생기므로 전환하지 않는다 (E7, h2c 스머글링)
+    upstream.on('upgrade', (_up, socket) => {
+      socket.destroy();
+      if (!res.headersSent) reply(res, 502, '502 Bad Gateway: 목적지가 프로토콜 전환(101)을 요청했지만 이 프록시는 지원하지 않습니다.');
+    });
+    upstream.on('error', (err: NodeJS.ErrnoException) => {
+      if (res.headersSent) return res.destroy(); // 응답 도중에 끊기면, 잘린 응답을 완전한 것처럼 끝내지 않는다
+      if (err.code === TIMEOUT) reply(res, 504, '504 Gateway Timeout: 목적지 서버가 응답하지 않습니다.');
+      else reply(res, 502, '502 Bad Gateway: 목적지 서버에 연결할 수 없습니다.');
     });
     req.on('error', () => upstream.destroy());
     req.pipe(upstream);

@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-1b] 끝 → 사용자 보고
-- 다음 할 일: [PRX-1c]
+- 작업: [PRX-1c] 끝 → 사용자 보고
+- 다음 할 일: [PRX-2] 요청·응답 기록(Flow) → PRX 큰 단위 감사
 - 미확인: on-prompt.mjs 실제 작동, ai-research Read 규칙(새 세션), method-auditor 이름 호출(새 세션)
 
 ## 로그
@@ -157,6 +157,28 @@
   - 새 동작 6개, 회귀 40개로 나눠 커밋(5ad27d9). 구현 뒤 `npm test` 167/167(fb8c15c). 실측: `node scripts/probe/prx1b-curl.mjs` → 200 / 400 / 400 / 400 / 200 [확인됨].
 - 계획과 달라진 점: D5는 Host 검사가 아니라 본문 경계 검사라 함수 `validateFraming()`을 따로 뒀다. D15는 Node가 이미 막아서 서버 옵션 변경이 필요 없어졌다.
 - [PRX-1b] 완료: 71eb378..(문서 커밋).
+
+### [PRX-1c] 계획
+- 미확인 항목(O13): 세 항목 모두 세션 밖 조건 필요, 변화 없음.
+- 사례: prx1-cases.md 배정 "1c". A10(포트 값 검사)은 사용자 설정 검사라 CLI 단계로 옮긴다(테스트는 임의 포트 0을 써야 함).
+- 한 줄 보고: 목표 = 목적지 쪽 이상과 견고성. 이미 되는 것과 새로 필요한 것을 실측으로 나눈다 / 범위 =
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `upstreamTimeoutMs`(목적지 무응답 → 504), `headersTimeoutMs`(느린 헤더 → 408, Node의 `headersTimeout`·`connectionsCheckingInterval` 설정) / `'request'` 처리기의 목적지 요청에 타임아웃 / 서버·목적지의 `'upgrade'` 처리(전환하지 않음) / 루프 검사를 함수 `isSelf(url)`로 분리(필요하면 루프백 범위로 넓힘)
+  - 새 `test/prx/_raw-upstream.ts`(원시 바이트로 응답하는 목적지: 함수 `startRawUpstream`), 새 `test/prx/PRX-1c.test.ts`(새 동작), 새 `test/prx/PRX-1c-regression.test.ts`(이미 되는 것)
+  - 새 `scripts/probe/prx1c-stream.mjs`(대용량 스트리밍 메모리 실측, B9), A9(0.0.0.0:P 점유 중 시작)도 실측으로 기록
+  - `docs/ai/purpose-tree.md`, `docs/ai/prx1-cases.md`(A10 이동), `docs/for-me/PRX-1c.md`
+  - 하지 않을 것 = CLI(A10), Flow 기록(PRX-2)
+- 예상 [추측]:
+  - E25(이미 됨): A2(LAN IP 192.168.35.181로 접속 → 거부), A7·A8(포트 점유 → startProxy 실패), B2 나머지(127.1, 2130706433, 0x7f000001은 URL이 127.0.0.1로 정규화 → 508 / 0.0.0.0, 127.0.0.2 → 502), B3(`localhost.` → 자기에게 닿지만 Via로 508), B7(목적지가 응답 도중 끊음 → 클라이언트 연결 끊김, 프록시 생존), B10(.invalid → 502), B11(깨진 목적지 응답 → 502), C11([::1] 목적지 → 정상, Host [::1]:P), D11(Expect: 100-continue), D12(HEAD·204·304에 본문 없음), D13(연결 종료로 끝나는 응답), D16(큰 응답 헤더 → 502), E9(chunked 응답의 경계 하나), E10, E11(keep-alive로 다른 목적지), E12(Set-Cookie 여러 줄 보존)
+  - E26(새 동작): B8(목적지 무응답 → 지금은 끝없이 기다림), D17(옵션이 없어 짧은 시간으로 시험 불가), E7(목적지가 101을 보내면 → 지금 동작 모름, 502여야 함)
+  - E27(모름 → 실측): A9(다른 프로세스가 0.0.0.0:P를 쓰는 중 127.0.0.1:P로 시작), B6(NODE_USE_ENV_PROXY=1 + HTTP_PROXY가 이 프록시를 가리킬 때 agent:false 요청이 환경 프록시를 따르는지)
+- 실측:
+  - E27: `node scripts/probe/prx1c-a9-b6.mjs` → A9 "성공(같은 포트를 나눠 씀)" → 새 동작, B6 "200 upstream-ok" → 회귀 [확인됨].
+  - 전체 사례: `node --test --test-timeout=15000 test/prx/PRX-1c.test.ts`(이때는 34개를 한 파일에 둔 상태) → 28개 통과, 6개 실패. B8·D17은 15초 제한까지 기다림(E26 일치). E25 **불일치**: B2의 0.0.0.0, B3의 localhost. 은 400이었다(자기에게 되돌아온 요청이 origin-form이라 거부됨. 무한 반복은 없음) → Via를 먼저 검사해서 508로. E7(101)은 상태 0 = 멈춤(E26 "모름" → 문제 확인).
+  - 새 동작 6개, 회귀 28개로 나눠 커밋. 실수 1건: 처음에 실측 스크립트를 테스트 커밋에 섞음 → 병합 전에 `git reset --soft`로 되돌려 다시 나눔(fcab10c).
+  - 구현 뒤 `npm test` 201/201(09dab30). A9 재실측 → "실패 EADDRINUSE" [확인됨]. 기존 prx1-curl.mjs, prx1b-curl.mjs 결과 변화 없음.
+  - B9: `node scripts/probe/prx1c-stream.mjs 64|512|2048` → 최대 RSS 96 / 142 / 162MB(시작 61MB), 바이트 일치 → 스트리밍 [확인됨]. 늘어난 부분은 GC가 늦게 치우기 때문으로 본다 [추측].
+- 계획과 달라진 점: isSelf()는 루프백 범위로 넓히지 않았다. 대신 Via 검사를 맨 앞으로 옮겨서 해결했다(주소 표기를 다 열거하지 않아도 됨).
+- [PRX-1c] 완료: 3ec846e..(문서 커밋).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
