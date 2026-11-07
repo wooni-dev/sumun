@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { execFile } from 'node:child_process';
 import forge from 'node-forge';
 
@@ -33,7 +34,9 @@ export type CAErrorCode =
   | 'CA_ENV_MISSING'
   | 'CA_WRITE' // [TLS-2b] 임시 파일 쓰기·배치 실패(되돌린 뒤)
   | 'CA_ACL' // [TLS-2b] 키 파일 권한을 본인만으로 정하지 못함(키를 쓰기 전에 멈춤)
-  | 'CA_NOT_FILE'; // [TLS-2b] CA 파일 자리가 일반 파일이 아님(링크·정션·폴더)
+  | 'CA_NOT_FILE' // [TLS-2b] CA 파일 자리가 일반 파일이 아님(링크·정션·폴더)
+  | 'CA_BAD_HOST' // [TLS-3] 발급할 이름이 올바르지 않음
+  | 'CA_BAD_ISSUER'; // [TLS-3] 발급에 쓸 루트 CA가 올바르지 않음(짝·정책·유효 기간)
 
 export class CAError extends Error {
   readonly code: CAErrorCode;
@@ -308,4 +311,117 @@ export async function loadOrCreateCA(
     // 졌다: 이긴 쪽이 인증서까지 놓기를 기다렸다가 그것을 읽는다. 이긴 쪽이 되돌렸으면(둘 다 없음) 한 번 더 만든다
   }
   throw new CAError('CA_INCOMPLETE', 'CA를 만드는 다른 호출이 끝나지 않았습니다', abs);
+}
+
+// ---------- [TLS-3] 사이트별 인증서 즉석 발급. 사례·결정은 docs/ai/tls3-cases.md ----------
+//
+//   issueCert(ca, hosts) ─ 이름 검사·정규화 → 루트 검사(짝·정책·남은 기간) → 새 키(비동기) → forge로 말단 TBS → Node crypto.sign(스레드 풀)
+//
+// 서명을 forge로 하지 않는 이유: forge 서명은 동기라 그동안 프록시 전체가 멈춘다(43~148ms). Node crypto.sign의 콜백형은
+// 스레드 풀에서 돌아 지연이 11~16ms로 줄었다 [확인됨: scripts/probe/tls3-sign.mjs E85·E86]. 캐시는 TLS-4(결정 5).
+const HOUR = 3_600_000;
+const LEAF_DAYS = 30; // 사용자 결정 1(2026-11-08)
+const MAX_HOSTS = 50; // 결정 12
+const LEAF_LABEL = /^(?!-)[a-z0-9_-]{1,63}(?<!-)$/; // 결정 9: 밑줄은 허용(실제 사이트 이름에 있다). 와일드카드(*)·비ASCII는 글자에서 걸린다(결정 2·6)
+
+type Name = { dns: string } | { ip: string };
+const badHost = (why: string) => new CAError('CA_BAD_HOST', `인증서에 넣을 이름이 올바르지 않습니다(${why})`, 'hosts');
+
+// 이름을 검사하고 정규화한다. 입력은 바꾸지 않는다(사례 34). 오류에는 입력을 넣지 않는다(로그 주입 방지)
+export function normalizeHosts(hosts: unknown): Name[] {
+  if (!Array.isArray(hosts) || hosts.length === 0) throw badHost('비어 있음');
+  if (hosts.length > MAX_HOSTS) throw badHost(`${MAX_HOSTS}개 초과`);
+  const out = new Map<string, Name>();
+  for (const h of hosts) {
+    if (typeof h !== 'string' || h === '') throw badHost('문자열이 아님');
+    const bare = /^\[[^\]]*\]$/.test(h) ? h.slice(1, -1) : h;
+    if (bare.includes(':')) {
+      // IPv6만 콜론을 가진다. 포트(example.com:443, [::1]:443)는 여기서 걸린다(사례 26)
+      if (!net.isIPv6(bare)) throw badHost('IPv6 주소');
+      const ip = new URL(`http://[${bare}]/`).hostname.slice(1, -1); // 표기를 하나로(0:0:…:1 → ::1)
+      if (ip.startsWith('::ffff:')) throw badHost('IPv4-mapped 주소'); // 결정 8
+      out.set(`ip:${ip}`, { ip });
+      continue;
+    }
+    const name = (bare.endsWith('.') ? bare.slice(0, -1) : bare).toLowerCase(); // 사례 18: 끝점 하나와 대소문자
+    const labels = name.split('.');
+    if (name.length > 253 || !labels.every((l) => LEAF_LABEL.test(l))) throw badHost('이름 형식');
+    // 숫자로만 된 이름: 점 4개 10진수(앞자리 0 없음)만 IPv4로 받는다. 127.1·2130706433·0x7f.0.0.1·0177.0.0.1은 거부(사례 22, TLS-1 결정 10과 같은 원칙)
+    if (labels.every((l) => /^(?:0x[0-9a-f]*|[0-9]+)$/.test(l))) {
+      if (labels.length !== 4 || !labels.every((l) => /^(?:0|[1-9][0-9]{0,2})$/.test(l) && Number(l) <= 255)) throw badHost('숫자 주소 표기');
+      out.set(`ip:${name}`, { ip: name });
+      continue;
+    }
+    if (labels.length === 1 && name !== 'localhost') throw badHost('한 단어 이름은 localhost만'); // 결정 9
+    out.set(`dns:${name}`, { dns: name });
+  }
+  return [...out.values()];
+}
+
+// 결정 11: 루트가 쓸 수 있는지 — 짝, 우리 CA 정책(TLS-2와 같은 검사), 남은 기간 1일 이상
+function checkIssuer(ca: CA, now: number) {
+  const bad = (why: string) => new CAError('CA_BAD_ISSUER', `발급에 쓸 루트 CA가 올바르지 않습니다(${why})`, 'ca');
+  let x: crypto.X509Certificate;
+  let key: crypto.KeyObject;
+  try {
+    x = new crypto.X509Certificate(ca.certPem);
+    key = crypto.createPrivateKey(ca.keyPem);
+  } catch {
+    throw bad('읽을 수 없음');
+  }
+  let pair = false;
+  try {
+    pair = x.checkPrivateKey(key);
+  } catch {}
+  if (!pair) throw bad('인증서와 키의 짝이 맞지 않음');
+  if (!followsPolicy(x, ca.certPem)) throw bad('루트 CA 형식이 아님');
+  const root = forge.pki.certificateFromPem(ca.certPem);
+  if (now < root.validity.notBefore.getTime()) throw bad('유효 기간 시작 전');
+  if (root.validity.notAfter.getTime() - now < DAY) throw bad('만료됐거나 남은 기간이 1일 미만');
+  return { root, key };
+}
+
+export async function issueCert(ca: CA, hosts: string[]): Promise<CA> {
+  const names = normalizeHosts(hosts);
+  const now = Date.now();
+  const { root, key: rootKey } = checkIssuer(ca, now);
+  // 결정 3(사용자): 호출마다 새 키. 루트 키를 쓰지 않는다 — 말단 키가 새면 루트가 샌 것과 같아진다
+  const { privateKey, publicKey } = await new Promise<{ privateKey: string; publicKey: string }>((resolve, reject) =>
+    crypto.generateKeyPair(
+      'rsa',
+      { modulusLength: 2048, publicExponent: 0x10001, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } },
+      (err, pub, priv) => (err ? reject(new CAError('CA_WRITE', '인증서 키를 만들지 못했습니다', 'issueCert')) : resolve({ privateKey: priv, publicKey: pub })),
+    ),
+  );
+  const { pki, asn1 } = forge;
+  const c = pki.createCertificate();
+  c.publicKey = pki.publicKeyFromPem(publicKey);
+  const serial = crypto.randomBytes(16); // 사례 9·10: 128비트 난수, 양수(TLS-2와 같은 처리)
+  serial[0] = serial[0] & 0x7f || 0x01;
+  c.serialNumber = serial.toString('hex');
+  c.validity.notBefore = new Date(now - HOUR); // 시계 오차
+  c.validity.notAfter = new Date(Math.min(now + LEAF_DAYS * DAY, root.validity.notAfter.getTime())); // 사례 37: 루트 만료를 넘지 않게
+  const first = names[0];
+  const cn = 'dns' in first ? first.dns : first.ip;
+  // 결정 7: CN은 첫 이름(64자 이하일 때만, X.520 상한). 매칭은 SAN으로만 한다
+  c.setSubject(cn.length <= 64 ? [{ name: 'commonName', value: cn }] : []);
+  c.setIssuer(root.subject.attributes); // 사례 7: 루트 subject와 바이트까지 같다 [확인됨: E89]
+  const ski = root.getExtension('subjectKeyIdentifier') as { subjectKeyIdentifier?: string } | null;
+  c.setExtensions([
+    { name: 'basicConstraints', cA: false, critical: true },
+    { name: 'keyUsage', digitalSignature: true, keyEncipherment: true, critical: true },
+    { name: 'extKeyUsage', serverAuth: true },
+    // 사례 4·5: SAN 필수, IP는 iPAddress. subject가 비면 SAN은 critical이어야 한다(RFC 5280 4.2.1.6)
+    { name: 'subjectAltName', critical: cn.length > 64, altNames: names.map((n) => ('dns' in n ? { type: 2, value: n.dns } : { type: 7, ip: n.ip })) },
+    { name: 'subjectKeyIdentifier' },
+    ...(ski?.subjectKeyIdentifier ? [{ name: 'authorityKeyIdentifier', keyIdentifier: forge.util.hexToBytes(ski.subjectKeyIdentifier) }] : []),
+  ]);
+  // forge가 서명할 때 채우는 두 칸(TBS 안의 서명 알고리즘, 바깥 서명 알고리즘)을 먼저 정하고 TBS만 forge로 만든다
+  c.siginfo.algorithmOid = c.signatureOid = pki.oids.sha256WithRSAEncryption;
+  const tbs = Buffer.from(asn1.toDer(pki.getTBSCertificate(c)).getBytes(), 'binary');
+  const sig = await new Promise<Buffer>((resolve, reject) =>
+    crypto.sign('sha256', tbs, rootKey, (err, s) => (err ? reject(new CAError('CA_BAD_ISSUER', '루트 CA로 서명하지 못했습니다', 'ca')) : resolve(s))),
+  );
+  c.signature = sig.toString('binary');
+  return { certPem: pki.certificateToPem(c), keyPem: privateKey };
 }
