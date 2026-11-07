@@ -35,7 +35,7 @@
 4. (이 문서 커밋) 문서와 진행 기록
 
 ## 먼저 볼 코드
-- `.claude/hooks/guard.mjs`의 `stripData()` — 세 가지 정규식이 각각 heredoc, PowerShell here-string, `-m` 메시지를 지운다. 첫 번째 정규식에서 `$3`(표식 줄의 나머지)을 남기는 게 중요하다. 이게 없으면 `cat <<EOF > test/x`의 리다이렉트까지 지워져 버린다.
+- `.claude/hooks/guard.mjs:79`(593fdf2 기준)의 `stripData()` — 세 가지 정규식이 각각 heredoc, PowerShell here-string, `-m` 메시지를 지운다. 첫 번째 정규식에서 `$3`(표식 줄의 나머지)을 남기는 게 중요하다. 이게 없으면 `cat <<EOF > test/x`의 리다이렉트까지 지워져 버린다.
 
 ## 파일별 변경
 ### test/infra/_hook-fixture.mjs — 임시 저장소를 만들고 guard 판정을 돌려주는 공통 도우미

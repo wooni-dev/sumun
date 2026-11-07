@@ -58,10 +58,32 @@
 - 실측: E7 일치(4개 모두 assertion 단계 실패), E8 일치(INFRA-3 모든 규칙 ✅/➖), E9 일치(INFRA-1은 plan-first ❌, 나머지 같음) [확인됨: 4928efc].
 - [INFRA-4] 완료: 7cc1607..(문서 커밋), npm test 48/48.
 
+### [INFRA-5] 계획
+- 사용자 승인(2026-11-07): AUDIT-2 보고서 1~5, 설계 결정 1~4 모두 추천대로. ① 실행 전 패턴 검사 + 실행 후 git 결과 확인, ② 위반하면 자동 복구 + 보고, ③ 데이터 지우기를 좁게 적용, ④ 상태 폴더는 패턴 검사 유지 + 한계로 기록.
+- 우회 사례: `docs/ai/guard-bypass-cases.md` (O10. 별도 검토 에이전트가 제안, 40개 [추측: 코드만 읽고 추론])
+- 한 줄 보고: 목표 = 테스트 파일 보호를 결과 확인 중심으로 / 범위 = `guard.mjs`의 `stripData()`, 출력 정리 정규식, `TEST_PATH_RE` + 새 `.claude/hooks/verify-tests.mjs` + `.claude/settings.json`의 PostToolUse + `test/infra/` 새 파일 3개 + docs / 하지 않을 것 = 상태 폴더 규칙 강화, 기존 테스트 수정
+- 설계:
+  - 실행 전(guard): heredoc 본문은 **소비하는 명령이 실행기가 아닐 때만**(bash, sh, node, python, xargs, while read, eval 등이 아닐 때) 그리고 확장(`$(`, 백틱)이 없을 때만 지운다. here-string은 PowerShell에서만, 파이프나 iex 없이 쓸 때만 지운다. `-m`은 git commit/tag/merge에서만 지우고, `$(`나 백틱이 있으면 지우지 않는다. PowerShell에서는 `\"`를 이스케이프로 보지 않는다. `>&숫자` 뒤에 경로가 이어지면 지우지 않는다. `TEST_PATH_RE` 앞 글자에 `>` `,` `{`를 추가한다.
+  - 실행 후(verify-tests, PostToolUse Bash|PowerShell): 잠금 상태에서 `git diff HEAD --name-only -- test/`에 파일이 있으면 `git checkout HEAD -- <파일>`로 복구하고 block 사유를 돌려준다.
+- 미확인 항목(O13 분류): on-prompt 작동 → 세션 밖 조건 필요(사용자가 "테스트 수정 허용"을 입력하거나 카운터가 0보다 클 때) / ai-research Read 규칙, method-auditor 이름 호출 → 세션 밖 조건 필요(새 세션)
+- 예상 [추측]:
+  - E10: 새 동작(red) 테스트로 넣을 우회 사례 21개(4, 6, 6′, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 22, 23, 24, 26, 27)는 수정 전 guard에서 모두 allow라서 red 실패한다. **검토자의 추론이 틀려 이미 deny인 사례가 있으면, red가 "구현 전 통과"로 알려 줄 것이다** → 그 사례는 회귀 파일로 옮긴다.
+  - E11: 정상 명령 회귀 10개는 수정 전후 모두 allow다.
+  - E12: verify-tests 테스트는 stub(아무것도 안 함) 상태에서 "복구됨/차단" 사례만 실패하고, "변경 없음/잠금 해제/새 파일" 사례는 통과한다 → 앞의 것은 red 파일, 뒤의 것은 회귀 파일로 나눈다(O9, O15).
+  - E13: 실행 전 검사로 못 막는 사례(1, 2, 3, 5, 20, 21, (다)·(라)의 규칙 A 위반)는 실행 후 검사가 복구한다. 대표로 `rm te?t/...` 형태를 실제 저장소에서 실측한다.
+- 실측 (O17: 명령 원문 포함):
+  - E10 일치: `npm run test:red -- test/infra/hooks-bypass.test.mjs test/infra/verify-tests.test.mjs` → 23개 모두 실패. 검토자가 추론한 우회 21개는 실제로도 모두 allow였다 [확인됨].
+  - E11, E12 일치: `node --test test/infra/hooks-normal-regression.test.mjs test/infra/verify-tests-regression.test.mjs` → 수정 전 15/15.
+  - E13 일치: `sed -i '1s/^/TAMPERED /' te?t/infra/hooks.test.mjs` → 실행 전 통과 → 실행 후 hook이 복구하고 block → `git diff HEAD -- test/` 비어 있음 [확인됨: b7c7d2d].
+  - 예상 밖 1: 복구가 CRLF로 나와 2개 실패. 원인은 이 PC의 core.autocrlf → `-c core.autocrlf=false checkout`으로 해결.
+  - 예상 밖 2: 상수를 사용 위치보다 아래에 선언해서 TDZ 오류 → 22개 실패. 그동안 실제 hook도 heredoc 명령에서 오류가 났고, `onFailure: block`이라 막히는 쪽(fail-closed)으로 동작했다 [추측: 그 사이 heredoc 명령을 실행하지 않음].
+  - 예상 밖 3: E13을 처음 시도할 때 확인 명령(`head ... test/infra/...`)을 같은 줄에 붙였더니 실행 전 검사에 걸렸다 → 명령을 나눴다.
+- [INFRA-5] 완료: 5254eb5..(문서 커밋), npm test 86/86. INFRA-3, INFRA-4 문서에 줄 번호를 보충했다(AUDIT-2 고칠 것).
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
-- ⚠ [INFRA-3 보안 회귀] stripData()가 **실행되는** heredoc/here-string 본문(`bash <<EOF`, `sh -s <<EOF`, `@'...'@ | Invoke-Expression`)까지 지워서, 본문 안의 테스트 파일 쓰기를 허용한다. 발견: INFRA-3 감사(2026-11-07). 확인: `node .git/verify-heredoc.cjs` → 3개 모두 allow [확인됨]. 상태 폴더 heredoc은 deny. 제안: INFRA-5(셸·인터프리터에 넘기는 경우는 본문을 지우지 않는다) → 사용자 보고.
+- ✅ (INFRA-5에서 해결) ~~[INFRA-3 보안 회귀]~~ stripData()가 **실행되는** heredoc/here-string 본문(`bash <<EOF`, `sh -s <<EOF`, `@'...'@ | Invoke-Expression`)까지 지워서, 본문 안의 테스트 파일 쓰기를 허용한다. 발견: INFRA-3 감사(2026-11-07). 확인: `node .git/verify-heredoc.cjs` → 3개 모두 allow [확인됨]. 상태 폴더 heredoc은 deny. 제안: INFRA-5(셸·인터프리터에 넘기는 경우는 본문을 지우지 않는다) → 사용자 보고.
 
 ## 시도하다 막힌 것
 (없음)
