@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-2b] 완료(main에 병합). PRX 큰 단위 완료 → 큰 단위 감사.
+- 작업: [PRX-T] 완료(main에 병합). 다음은 PRX 큰 단위 확인(검토 에이전트 → 중간 확인 보고서).
 - 다음 할 일: PRX 큰 단위 감사 결과(AUDIT-5)에 대한 사용자 결정 → PRX 큰 단위 확인(검토 에이전트 + 중간 확인 보고서) → TLS(보류 중인 O22~O31 검토 포함)
 - 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test` → ⑤ 아래 미확인 항목부터 처리(O6)
 - 미확인:
@@ -247,6 +247,23 @@
 - 범위 정정(O11, 감사 지적): 계획 커밋의 범위에 다음 파일이 없었다 — PRX-1b(71eb378): `test/prx/_prx1b-setup.ts`, `scripts/probe/prx1b-curl.mjs` / PRX-1c(3ec846e): `test/prx/_prx1c-setup.ts`, `scripts/probe/prx1c-a9-b6.mjs` / PRX-2(44878a3): `scripts/probe/prx2-curl.mjs`, `scripts/probe/prx2-node.mjs`. PRX-1 감사의 "도우미도 범위에 적기"를 1b 계획에서 적용했다고 체크했지만, 그 계획에서 setup 도우미가 빠졌다.
 - 바로 고친 것: PRX-1b.md·PRX-1c.md 줄 번호 기준 해시, 위 범위 정정, E36 G6 불일치 표시.
 - 사용자 결정 대기: 큰 단위 확인(검토 에이전트 + 중간 확인 보고서), 큰 단위 테스트 (가)/(나), PRX 상태 🔨 되돌리기, O22~O38 승인.
+
+### [PRX-T] 계획
+- 사용자 결정(2026-11-07, "추천대로"): AUDIT-5 결정 1-(가) 큰 단위 테스트를 지금 추가, 2 TLS 전에 큰 단위 확인(검토 에이전트 + 중간 확인 보고서), 3 PRX 상태를 확인 대기(🔨)로 되돌림, 4 O22~O38은 보고서에 추천과 함께 모음.
+- 미확인 항목(O13): 변화 없음(PRX-2b 계획과 같음).
+- 한 줄 보고: 목표 = 사용자 흐름(브라우저가 프록시를 거쳐 요청 → 기록이 남음)을 처음부터 끝까지 한 번에 확인하는 테스트 / 범위 =
+  - 새 `test/prx/PRX-T-regression.test.ts`: 실제 `curl.exe -x`로 (1) 쿠키·쿼리·본문이 있는 POST → curl 결과, 목적지가 받은 요청, 기록(Flow)을 함께 확인 (2) 닫힌 포트 → curl 502 + 기록의 error. curl이 없으면 건너뜀. 도우미는 기존 `test/prx/_flow.ts`의 `startByteUpstream`을 쓴다
+  - `docs/ai/purpose-tree.md`(PRX 🔨 확인 대기, PRX-T 추가), `docs/for-me/PRX-T.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 코드 변경, HTTPS(TLS 단계에서 이 흐름을 이어 붙인다), 중간 확인 보고서(다음 작업)
+- 이 테스트는 이미 만든 기능을 이어 붙여 확인하는 것이라 **구현 전에도 통과하는 게 정상이다** → 회귀 파일로 두고 red 대상이 아니다(O9). 큰 단위를 시작할 때 먼저 썼어야 했다(AUDIT-5 지적, O33).
+- 예상 [추측]:
+  - E37: 테스트는 처음 실행에서 통과한다(작은 단위가 각각 검증한 것을 이어 붙였을 뿐이라서). 실패하면 작은 단위 사이의 이음새 문제이므로 범위 안 결함으로 기록하고 보고한다.
+  - E38: curl이 보낸 헤더 순서는 Host, User-Agent, Accept, Proxy-Connection, Cookie, Content-Length, Content-Type이다(prx2-curl.mjs 실측과 같음). 테스트는 순서가 아니라 존재만 확인한다.
+
+- 실측 (명령 원문):
+  - E37 일치: `node --test test/prx/PRX-T-regression.test.ts` → 2/2 통과, 건너뜀 0. `npm test` 257/257(04a3143).
+  - E38: 테스트는 헤더의 존재만 확인한다. 순서는 이번에 다시 재지 않았다(PRX-2의 `node scripts/probe/prx2-curl.mjs` 결과가 근거).
+- [PRX-T] 완료: a28e879..(문서 커밋). 다음: 검토 에이전트(목표 문서만) → 중간 확인 보고서.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
