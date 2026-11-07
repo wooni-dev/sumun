@@ -34,7 +34,7 @@
  │   ├ [PRX-2] 요청/응답을 Flow로 기록 (prx2-cases.md 배정 "2")         ✅  → src/flow/flow.ts, server.ts   의존: PRX-1
  │   ├ [PRX-2b] 기록의 자원 상한·나머지 경계 (prx2-cases.md 배정 "2b")   ✅  → src/proxy/server.ts   의존: PRX-2
  │             (2026-11-07 PRX-2에서 나눔 — 작은 기능 추가, 보고서에 표시)
- │   ├ [PRX-3] Flow 모양 보완: 시작 알림, 목적지 칸(target), 본문 도중 타임아웃, 실패 코드 bad-response   🔨  → src/flow/, src/proxy/  (PRX 보고서 결정 2, 3, 4, 10)
+ │   ├ [PRX-3] Flow 모양 보완: 시작 알림, 목적지 칸(target), 본문 도중 타임아웃, 실패 코드 bad-response   ✅  → src/flow/flow.ts, src/proxy/server.ts  (PRX 보고서 결정 2, 3, 4, 10)
  │   └ [PRX-4] 실행 진입점 `npm start` + 포트 값 검사(A10)   ⬜  → src/index.ts  (PRX 보고서 결정 6)
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  ⬜  의존: PRX-2
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ⬜  → src/tls/
