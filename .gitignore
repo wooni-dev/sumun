@@ -2,6 +2,10 @@ node_modules/
 dist/
 *.log
 
+# hook 상태(실행 기록, 연속 실패 카운터, 잠금 해제)와 개인 설정
+.claude/state/
+.claude/settings.local.json
+
 # 인증서와 키는 절대 커밋하지 않는다 (CA는 저장소 밖 %APPDATA%\sumun\ca\ 에 둔다. 혹시 모를 실수를 막기 위한 이중 장치)
 *.key
 *.pem
