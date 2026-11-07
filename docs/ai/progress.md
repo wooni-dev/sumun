@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: INFRA-3, INFRA-4 감사
+- 작업: [INFRA-6] 마무리
 - 다음 할 일: 감사 결과 보고 → [PRX-1] 시작 전 설명 → [PRX-1]
 - 미확인: on-prompt.mjs 실제 작동, ai-research Read 규칙(새 세션), method-auditor 이름 호출(새 세션)
 
