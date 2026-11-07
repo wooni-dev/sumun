@@ -3,8 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: INFRA 정리 끝 → 사용자 보고
-- 다음 할 일: O18~O21 결정 → INFRA-6 감사 → [PRX-1] 시작 전 설명 → [PRX-1]
+- 작업: [PRX-1] 시작 전 설명
+- 다음 할 일: HTTP 프록시 중계 흐름을 실측과 함께 설명 → [PRX-1] 계획
 - 미확인: on-prompt.mjs 실제 작동, ai-research Read 규칙(새 세션), method-auditor 이름 호출(새 세션)
 
 ## 로그
@@ -107,6 +107,8 @@
 - 예상 [추측]:
   - E17: 새 테스트(`` `127.0.0.1:8080` ``, `` `localhost:3000` ``, `` `http://localhost:8080` ``만 있으면 user-doc-lines 위반)는 구현 전에 assertion 실패한다. 지금 정규식이 셋 다 파일:줄로 인정하기 때문이다(AUDIT-3 감사자의 추측이 맞다면).
   - E18: 기존 check-method-doc 테스트(`src/proxy/server.ts:12`는 인정)는 구현 뒤에도 통과한다. INFRA-1~6 문서는 user-doc-lines ✅를 유지한다.
+- 실측: E17 일치(`npm run test:red -- test/infra/check-method-doc-addr.test.mjs` → assertion 실패 3개, 감사자의 추측이 맞았음). E18 일치(`npm test` 99/99, `for i in 1..6; node scripts/check-method.mjs --id INFRA-$i` → user-doc-lines 모두 ✅) [확인됨: 9512d6b].
+- [INFRA-7] 완료: 8f8a248..(문서 커밋). 감사 주기 결정에 따라 감사는 하지 않고 기계 검사만 했다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
