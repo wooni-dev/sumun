@@ -5,6 +5,7 @@
 // 커밋 제목이 [ID]로 시작하는 커밋(병합 커밋 제외)을 오래된 순으로 모아서 검사한다.
 // 결과는 모두 프로그램이 낸 것이므로 [확인됨]이다. 의미 판단(의도 하나인가, 범위를 벗어났나)은 method-auditor가 한다.
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 
 const TEST_COMMIT = '테스트:';
@@ -105,7 +106,8 @@ export function checkCommits({ id, commits, docExists, docText, planRuleApplies 
 
 // [INFRA-8] O32: 큰 단위. 하위 노드 결과를 모으고, 큰 단위 절차(decisions 7~9행)를 따로 본다
 //   subnodes = [{ id, results }], reportText = docs/for-me/<ID>-report.md 본문(없으면 undefined)
-export function checkBigUnit({ id, subnodes, reportText }) {
+// lastRun = .claude/state/last-run.json (마지막 npm test). [INFRA-9] 큰 단위가 끝날 때 그 큰 단위 테스트의 대기(todo)가 0이어야 한다
+export function checkBigUnit({ id, subnodes, reportText, lastRun }) {
   const results = [];
   const add = (rule, ok, detail, basis = 'HEAD') => results.push({ rule, ok, detail, basis });
   const failed = subnodes.flatMap((n) => n.results.filter((r) => r.ok === false).map((r) => `${n.id} ${r.rule}`));
@@ -115,6 +117,15 @@ export function checkBigUnit({ id, subnodes, reportText }) {
   add('big-unit-report', reportText !== undefined, `docs/for-me/${id}-report.md ${reportText !== undefined ? '있음' : '없음'}`);
   const reviewed = reportText !== undefined && /검토 에이전트 확인/.test(reportText);
   add('big-unit-review', reviewed, reviewed ? '보고서에 검토 에이전트 확인 결과 있음' : '보고서에 "검토 에이전트 확인" 없음');
+  // 사례 23~26: 일부만 실행한 기록, 실패가 남은 기록, 기록 없음으로는 통과하지 않는다. 판정 근거는 실행기가 쓴 기록이다(문구가 아니라)
+  const wait = lastRun?.bigTodo?.[id]?.todo ?? 0;
+  const todoOk = !!lastRun && lastRun.full === true && lastRun.failed === 0 && wait === 0;
+  add(
+    'big-unit-todo',
+    todoOk,
+    !lastRun ? '마지막 실행 기록(.claude/state/last-run.json) 없음' : `마지막 npm test: 전체 실행 ${lastRun.full === true ? '예' : '아니오'}, 실패 ${lastRun.failed}, ${id} 대기 ${wait}개`,
+    '마지막 npm test',
+  );
   return results;
 }
 
@@ -216,7 +227,11 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
 
   if (subIds.length) {
     const subnodes = subIds.map(checkNode);
-    const results = checkBigUnit({ id, subnodes, reportText: show(`HEAD:docs/for-me/${id}-report.md`) });
+    let lastRun;
+    try {
+      lastRun = JSON.parse(fs.readFileSync(path.join(cwd, '.claude', 'state', 'last-run.json'), 'utf8'));
+    } catch {}
+    const results = checkBigUnit({ id, subnodes, reportText: show(`HEAD:docs/for-me/${id}-report.md`), lastRun });
     if (args.includes('--json')) console.log(JSON.stringify({ id, bigUnit: true, subnodes, results }, null, 2));
     else {
       console.log(`## [${id}] 큰 단위 기계 검사 [확인됨: scripts/check-method.mjs]\n`);

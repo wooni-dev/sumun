@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseJunit, updateStreak, stopped, STOP_AFTER } from './streak.mjs';
+import { parseJunit, updateStreak, stopped, STOP_AFTER, bigUnitExempt, bigUnitsFromTree, bigTodoSummary } from './streak.mjs';
 
 const projectDir = path.resolve(import.meta.dirname, '..');
 const stateDir = path.join(projectDir, '.claude', 'state');
@@ -36,12 +36,40 @@ if (!fs.existsSync(junitPath)) {
 }
 
 const results = parseJunit(fs.readFileSync(junitPath, 'utf8'), projectDir);
-const failedCount = results.filter((r) => r.failed).length;
+
+// [INFRA-9] 큰 단위 테스트의 대기(todo) 실패는 연속 실패에서 뺀다. 판정 근거(목적 나무, 파일 존재, -T 파일 내용)는 이 실행기가 직접 읽는다
+let tree = '';
+try {
+  tree = fs.readFileSync(path.join(projectDir, 'docs', 'ai', 'purpose-tree.md'), 'utf8');
+} catch {}
+const bigCtx = {
+  bigUnits: bigUnitsFromTree(tree),
+  exists: (p) => fs.existsSync(path.join(projectDir, p)),
+  readFile: (f) => fs.readFileSync(path.join(projectDir, f), 'utf8'),
+};
+const exempt = (r) => bigUnitExempt(r, bigCtx);
+const failedCount = results.filter((r) => r.failed && !exempt(r)).length;
+const exemptFailed = results.filter((r) => r.failed && exempt(r)).length;
+const bigTodo = bigTodoSummary(results, bigCtx);
 
 fs.writeFileSync(
   path.join(stateDir, 'last-run.json'),
-  JSON.stringify({ at: new Date().toISOString(), mode: red ? 'red' : 'normal', targets, exitCode: run.status, total: results.length, failed: failedCount }, null, 2),
+  JSON.stringify(
+    // full = 대상 인자 없이 전체를 실행했는가. 큰 단위가 끝날 때 check-method가 이 기록으로 "대기 0"을 확인한다(사례 23)
+    { at: new Date().toISOString(), mode: red ? 'red' : 'normal', targets, full: files.length === 0, exitCode: run.status, total: results.length, failed: failedCount, exemptFailed, bigTodo },
+    null,
+    2,
+  ),
 );
+
+// 사례 22: 대기 실패만 있으면 종료 코드가 0이라 "통과"로 오해하기 쉽다. 따로 보여 준다
+for (const [id, { todo, failed }] of Object.entries(bigTodo)) {
+  console.log(`\nℹ 큰 단위 대기(todo) ${id}: ${todo}개, 그중 실패 ${failed}개 — 대기 중인 파일이 생기면 실제 검사가 된다. 큰 단위가 끝날 때는 0개여야 한다`);
+}
+// 사례 18: 대기 중인데 통과하는 테스트는 아무것도 검사하지 않을 수 있다
+for (const r of results.filter((r) => typeof r.todo === 'string' && !r.failed && bigUnitExempt({ ...r, failed: true }, bigCtx))) {
+  console.log(`⚠ 대기 중인데 통과한 큰 단위 테스트: ${r.key} (빈 테스트인지 확인)`);
+}
 
 if (red) {
   const passed = results.filter((r) => !r.failed);
@@ -59,7 +87,7 @@ if (red) {
 }
 
 const prev = fs.existsSync(streakPath) ? JSON.parse(fs.readFileSync(streakPath, 'utf8')).counts : {};
-const counts = updateStreak(prev, results);
+const counts = updateStreak(prev, results, exempt);
 fs.writeFileSync(streakPath, JSON.stringify({ counts }, null, 2));
 
 const hit = stopped(counts);
