@@ -3,9 +3,15 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [PRX-1c] 끝 → 사용자 보고
-- 다음 할 일: [PRX-2] 요청·응답 기록(Flow) → PRX 큰 단위 감사
-- 미확인: on-prompt.mjs 실제 작동, ai-research Read 규칙(새 세션), method-auditor 이름 호출(새 세션)
+- 작업: 세션 종료(2026-11-07). 사용자가 "다음 세션에서 진행"하기로 함. main = fa5a2b3 이후 이 기록 커밋, npm test 201/201.
+- 다음 할 일: [PRX-2] 요청·응답 기록(Flow) → PRX 큰 단위 감사(보류 중인 O22~O31 검토 포함)
+  - PRX-2를 시작하기 전에 사용자에게 먼저 설명하고 결정을 받을 것: 기록에는 쿠키, Authorization, 토큰 같은 민감한 값이 그대로 담긴다. 저장 위치(메모리만 / 파일), 보존 기간, 가리기(마스킹) 여부.
+  - PRX-2는 보안 관련(민감 정보 처리)이므로 O10을 적용한다: 검토 에이전트에게 사례를 먼저 받는다.
+- 새 세션 시작 순서(개발 방식 7~9행): ① docs/ai/purpose-tree.md → ② 이 파일(단서로만) → ③ `git log --oneline -15`로 대조 → ④ `npm test`(201/201이어야 함) → ⑤ 아래 미확인 항목부터 처리(O6)
+- 미확인(세션 밖 조건 → **새 세션에서 확인 가능**):
+  - ai-research Read 규칙: 새 세션에서 `D:\secretary\ai-research\decisions.md`를 읽을 때 권한 창이 뜨지 않으면 `.claude/settings.json`의 `Read(//d/secretary/ai-research/**)`가 동작하는 것이다.
+  - method-auditor 이름 호출: 새 세션에서 Agent의 subagent_type `method-auditor`로 부를 수 있는지. 안 되면 지금처럼 범용 에이전트가 정의 파일을 읽게 한다.
+  - on-prompt.mjs: 사용자가 "테스트 수정 허용"을 입력하거나 연속 실패 카운터가 0보다 클 때 확인할 수 있다.
 
 ## 로그
 ### 2026-11-07
