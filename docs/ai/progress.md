@@ -110,6 +110,23 @@
 - 실측: E17 일치(`npm run test:red -- test/infra/check-method-doc-addr.test.mjs` → assertion 실패 3개, 감사자의 추측이 맞았음). E18 일치(`npm test` 99/99, `for i in 1..6; node scripts/check-method.mjs --id INFRA-$i` → user-doc-lines 모두 ✅) [확인됨: 9512d6b].
 - [INFRA-7] 완료: 8f8a248..(문서 커밋). 감사 주기 결정에 따라 감사는 하지 않고 기계 검사만 했다.
 
+### [PRX-1] 계획
+- 근거: 사용자가 "시작" (2026-11-07). 시작 전 설명에서 쓴 실측(O17):
+  - 명령: TCP 서버(127.0.0.1:18080)를 띄우고 `curl -x http://127.0.0.1:18080 http://example.com/hello?q=1` 실행 → 받은 첫 줄 `GET http://example.com/hello?q=1 HTTP/1.1`, 헤더 `Host: example.com`, `Proxy-Connection: Keep-Alive` [확인됨]
+  - 같은 방식으로 https URL → `CONNECT example.com:443 HTTP/1.1`, 경로 없음 [확인됨]
+  - Node http 서버(127.0.0.1:18081)로 같은 요청 → `req.url = "http://example.com/hello?q=1"`, 헤더 이름은 소문자. CONNECT 처리기가 없으면 응답 없이 연결이 끊김(curl 상태 000) [확인됨]
+- 보안 사례(O10): `docs/ai/prx1-cases.md` (검토 에이전트가 명세만 보고 제안, 약 80개). 크기 때문에 PRX-1과 PRX-1b로 나눴다(목적 나무에 PRX-1b 추가).
+- 미확인 항목(O13): 세 항목 모두 세션 밖 조건 필요(변화 없음).
+- 한 줄 보고: 목표 = 127.0.0.1에서 absolute-form HTTP 요청을 받아 목적지로 중계 / 범위 =
+  - 새 `src/proxy/server.ts`: `startProxy({ port })` → `{ port, close() }`. 항상 127.0.0.1에 바인딩한다(host 옵션 없음). absolute-form 해석, origin-form으로 변환, Host 재작성, hop-by-hop 제거(Connection 토큰 포함, 단 Host·Content-Length는 지우지 않음), Via `1.1 sumun` 추가, 루프(자기 주소, Via) → 508, CONNECT·https → 501, origin-form·http가 아닌 scheme → 400, 연결 실패 → 502. 오류 본문은 text/plain이고 입력을 반영하지 않는다.
+  - 새 `test/prx/PRX-1.test.ts`, 새 `test/prx/_upstream.ts`(테스트용 로컬 목적지 서버 + 프록시 경유 요청 도우미)
+  - `docs/ai/purpose-tree.md`(PRX-1 🔨, PRX-1b 추가), `docs/ai/prx1-cases.md`, `docs/for-me/PRX-1.md`, `docs/ai/map.md`(필요하면)
+  - 하지 않을 것 = 배정 "1b" 사례, Flow 기록(PRX-2), CLI·실행 진입점(src/index.ts), 타입 검사 도구(tsc) 설치
+- 예상 [추측]:
+  - E19: stub(127.0.0.1을 지정하지 않고 listen하고, 모든 요청에 500을 돌려줌)에서 PRX-1 테스트는 모두 실패한다. 대부분 assertion 실패이고, CONNECT 테스트는 stub에 처리기가 없어 연결이 끊기므로 **오류**로 실패한다(실측에서 본 동작).
+  - E20: 구현 뒤 실제 curl로 `curl -x http://127.0.0.1:<포트> http://127.0.0.1:<로컬서버>/hello?q=1`을 보내면 로컬 서버가 `/hello?q=1`과 `via: 1.1 sumun`을 받는다.
+  - E21: Node는 `.ts` 테스트에서 `import ... from './x.ts'`처럼 **확장자를 붙여야** 불러올 수 있다.
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
