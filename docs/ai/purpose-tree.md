@@ -51,7 +51,7 @@
  │   ├ [STO-1] 저장·요약·상세·알림(진행 중 → 완료, 구독자 격리, 출력 안전)   ✅  → src/store/store.ts  (sto-cases.md 배정 "STO-1")
  │   ├ [STO-2] 보관 상한: 256MiB·10,000건·진행 중 1,000개, 오래된 것부터, 메모리가 실제로 풀림   ✅  → src/store/store.ts  의존: STO-1
  │   ├ [STO-3] 필터(호스트·메서드·상태 코드)와 페이지   ✅  → src/store/filter.ts  의존: STO-1
- │   └ [STO-4] 프록시 연결(시작·끝 함께, 프록시 하나)과 실행 진입점   ⬜  → src/store/attach.ts, src/index.ts  의존: STO-1~3
+ │   └ [STO-4] 프록시 연결(시작·끝 함께, 프록시 하나)과 실행 진입점   🔨  → src/store/attach.ts, src/index.ts  의존: STO-1~3
  │         (STO-1~4: 2026-11-08 Claude가 나눔 — 작은 기능 추가, 보고서에 표시)
  ├ [UI] 대시보드 — 왜: 목록 + 상세 + 필터를 실시간으로 보기              ⬜  → src/dashboard/  의존: STO
  │   (작은 기능은 STO가 끝난 뒤 나눈다)
