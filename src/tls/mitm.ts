@@ -34,7 +34,9 @@ export function createCertCache(ca: CA): CertCache {
 }
 
 // 터널 안 요청의 목적지. host = CONNECT 이름(소문자, 끝점 제거, IPv6는 [::1]), address = CONNECT 때 검사한 주소
-export type MitmRoute = { host: string; port: number; address: string; requests: number; sni: () => string | null };
+// addresses = 검사한 주소 전부. localhost가 ::1, 127.0.0.1 순서로 풀리는 것처럼 첫 주소에 목적지가 없을 수 있어 차례로 시도한다
+// [확인됨: 이 PC에서 dns.lookup('localhost', { all: true }) → ::1, 127.0.0.1]
+export type MitmRoute = { host: string; port: number; addresses: string[]; requests: number; sni: () => string | null };
 const ROUTE = Symbol('sumun.mitm.route');
 export const routeOf = (socket: unknown): MitmRoute | undefined => (socket as { [ROUTE]?: MitmRoute } | undefined)?.[ROUTE];
 
@@ -62,7 +64,7 @@ export async function openMitm(o: {
   const checked = await checkConnect(o);
   if ('refuse' in checked) return (writeRefusal(socket, checked.refuse.status, checked.refuse.message, o.viaId), finish({ error: checked.refuse.error }));
   if ('aborted' in checked) return finish({ error: { by: 'client', code: 'aborted' } });
-  const { port, address } = checked.ok;
+  const { port, addresses } = checked.ok;
   const host = cacheKey(checked.ok.host);
 
   // 200을 보내기 전에 인증서를 준비한다: 클라이언트는 200을 받은 뒤에 ClientHello를 보내므로, 그사이 받은 바이트가 버려지지 않는다
@@ -80,10 +82,12 @@ export async function openMitm(o: {
   const t = new tls.TLSSocket(socket, { isServer: true, secureContext: context, ALPNProtocols: ['http/1.1'] }); // ALPN은 http/1.1만(HTTP/2는 범위 밖)
   wrapped = true;
   o.track(t);
-  const route: MitmRoute = { host, port, address, requests: 0, sni: () => (typeof t.servername === 'string' && t.servername ? t.servername : null) };
+  const route: MitmRoute = { host, port, addresses, requests: 0, sni: () => (typeof t.servername === 'string' && t.servername ? t.servername : null) };
   (t as unknown as { [ROUTE]: MitmRoute })[ROUTE] = route;
-  let failed = false;
-  t.on('error', () => ((failed = true), t.destroy())); // 클라이언트가 우리 인증서를 거부(사례 D3) 등. 목적지에는 아직 연결하지 않았다
-  t.once('close', () => (route.requests > 0 ? finish(undefined) : finish(failed ? { error: { by: 'client', code: 'tls-handshake' } } : {})));
+  // 핸드셰이크가 끝나지 않고 닫히면 실패다. 클라이언트가 우리 인증서를 거부하면(사례 D3) 서버 쪽에는 오류 이벤트 없이 닫히기만 할 수 있다
+  let secured = false;
+  t.once('secure', () => (secured = true));
+  t.on('error', () => t.destroy()); // 목적지에는 아직 연결하지 않았다
+  t.once('close', () => (route.requests > 0 ? finish(undefined) : finish(secured ? {} : { error: { by: 'client', code: 'tls-handshake' } })));
   o.inner.emit('connection', t); // 안쪽 HTTP 서버가 터널 안 요청을 해석한다 [확인됨: E97 keep-alive 3개]
 }
