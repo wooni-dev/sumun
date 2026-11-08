@@ -1127,6 +1127,12 @@
   - E167: `npm run test:red -- test/ui/UI-T.test.ts` → 2개 모두 실패, 유형은 오류(동적 import한 `src/dashboard/server.ts`가 없음, ERR_MODULE_NOT_FOUND). 판정: 실패 2, 각각 ERR_MODULE_NOT_FOUND면 일치.
   - E168: 테스트 커밋 뒤 `npm test`는 종료 코드 0, 출력에 "큰 단위 대기(todo) UI: 2개, 그중 실패 2개". 판정: 둘 다면 일치.
   - E169: 옮긴 실험 스크립트가 저장소 안에서도 에이전트 결과와 같은 줄을 낸다(E1 200 비밀, E4 508, E6 기록 4건, E8 터널 200, E9 Host anything.evil·Via null). 판정: 다섯 다 같으면 일치.
+- 실측 (명령 원문):
+  - E169 일치(acc39b8): `node scripts/probe/ui-review/e1.mjs` → E1·E2·E3 `200 {"secret":"COOKIE=abc"}`, E4 508, E6 stored 4. `node scripts/probe/ui-review/e2.mjs` → E8 `HTTP/1.1 200 Connection Established` 뒤 `200 OK … SECRET`, E9 `{"host":"anything.evil","via":null}`.
+  - E167 일치(79ad7b3 커밋 전): `npm run test:red -- test/ui/UI-T.test.ts` → tests 2 / todo 2, 둘 다 `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…\src\dashboard\server.ts'`.
+  - E168 일치(79ad7b3): `npm test` → 종료 코드 0, tests 705 / pass 703 / fail 0 / todo 2, "큰 단위 대기(todo) UI: 2개, 그중 실패 2개".
+- 계획과 달라진 점: 없음.
+- 범위 밖 관찰: 없음(X1은 계획에 기록).
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
