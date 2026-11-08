@@ -1025,6 +1025,7 @@
   - b045e7e에서 승인 전 관찰(메시지 파일 이름 규칙, O54)을 CLAUDE.md에 넣었다가 O23 위반이라 뺐다(d41b381). 그때 줄바꿈 하나를 잘못 지워 4a120b7에서 되살렸다(d41b381 메시지의 "한 줄 삭제"는 실제 diff와 달랐다).
   - 새 방식 관찰 O53(예상된 실패가 멈춤에 걸림, 선택 창 답으로는 안 풀림)·O54(공유 임시 폴더의 옛 메시지 파일) → `docs/method-feedback.md`, INFRA-12 계획 때 여쭙는다.
 - 범위 밖 관찰: 없음.
+- [INFRA-11] 완료: 757f27b..33d843a, 병합 b5eba10. `node scripts/check-method.mjs --id INFRA-11`(b5eba10) → 10개 ✅, tree-updated ➖(INFRA). `node scripts/check-method.mjs --id PRX-2b | grep -c 5e7b491` → 0(지운 커밋이 섞이지 않음). 이 줄은 [AUDIT-11]로 커밋(O50 반영 전).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
