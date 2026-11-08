@@ -982,6 +982,7 @@
   - E154 일치(994bc01): `node scripts/probe/sto-final-review/r3-order.mjs` 7번 → 이벤트 `["start:1","done:2","evicted:1"]`, 목록 `["2:done"]`.
 - 계획과 달라진 점: 없음. 테스트 기대값은 처음 쓴 그대로. 사용자 문서 `docs/for-me/STO-2.md`도 고침(계획 범위에 적은 대로 — 빼는 순서 ③과 실제 메모리 약 330MB).
 - 범위 밖 관찰: 없음.
+- [STO-5] 완료: eaa95c5..9b28a8a, 병합 4b2d4ec. `node scripts/check-method.mjs --id STO-5`(4b2d4ec) → 11개 모두 ✅. `node scripts/check-method.mjs --id STO`(4b2d4ec) → sub-nodes ✅(하위 6개), big-unit-test·report·review·todo ✅. 이 줄은 [AUDIT-10]으로 커밋(O50 반영 전이라 지금까지의 큰 단위 기록 방식).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
