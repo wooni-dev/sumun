@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-4b] 복호화 견고성 (feat/TLS-4b). 아래 "[TLS-4b] 계획".
+- 작업: [TLS-4b] 복호화 견고성 (feat/TLS-4b) — **멈춤: 테스트 결함(D4) 보고, 사용자 결정 대기**. 아래 "[TLS-4b] 계획".
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -648,6 +648,9 @@
   - E107 B4: Node 클라이언트에 servername '127.0.0.1'을 주면 [추측: 경고와 함께 SNI를 보내지 않거나 그대로 보낸다]. 판정: 실측 결과를 기록. 어느 쪽이든 인증서는 CONNECT 기준.
   - E108: 새 동작 테스트는 지금 구현(b78c112)에서 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
   - E109: 구현 뒤 `npm test` 실패 0, 큰 단위 대기 0. 판정: 둘 다.
+- 실측(05d5607): E102·E103·E104 일치(회귀), **E105 불일치**(Upgrade가 일반 GET으로 바뀌어 전달), E106 일치(EPROTO·ERR_SSL_*), E107 기록(IP SNI여도 CONNECT 기준 인증서).
+- E108 일치(b8913fb): 7개 모두 assertion 실패, 오류 0. 회귀 6/6.
+- **멈춤(2026-11-08): 테스트 결함 보고, 사용자 결정 대기.** 구현 뒤 TLS 계열 96개 중 95 통과. 실패 1 = `test/tls/TLS-4b.test.ts` D4. 테스트는 "200 뒤 ClientHello를 보내지 않는 클라이언트"를 시험해야 하는데, 도우미 `connectMitm`(test/tls/_mitm.ts)은 200 뒤 곧바로 TLS를 시작해 ClientHello를 보낸다. 게다가 프록시 CA를 넘기지 않아 클라이언트가 인증서를 거부 → 기록이 timeout이 아니라 tls-handshake. 구현은 맞다 [확인됨: scripts/probe/tls4b-timeout.mjs → "CONNECT 응답 HTTP/1.1 200 / ClientHello 없이 기다림 → 316ms 뒤 닫힘 / 기록 [['CONNECT',{'by':'client','code':'timeout'}]]"]. 제안: D4 앞부분을 원시 소켓으로(CONNECT만 보내고 200을 읽은 뒤 아무것도 보내지 않음) 고친다(기대값 timeout 그대로). 사용자가 "테스트 수정 허용"을 입력해야 고칠 수 있다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
