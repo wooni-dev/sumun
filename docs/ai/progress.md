@@ -688,7 +688,8 @@
 - E116 일치(2fa5e0c): `node scripts/probe/tls4c-openssl.mjs` → 핸드셰이크 383ms, 종료 2967ms, 408 받음 true, 기록 client timeout. 첫 실행(stdin 열어 둠)은 openssl이 끝나지 않음 → stdin 닫고 -ign_eof. `node scripts/probe/tls4-curl.mjs` → --ssl-no-revoke로 example.com 200, 로컬 불신 502(그대로).
 - TLS 보고서 검토 스크립트 재실행: `node scripts/review/tls/review-idle.ts 6` → `{"afterHandshake":764,"noClientHello":677,"plainIdle":761,"partialHeaders":764}`(전: afterHandshake·partialHeaders null), `node scripts/review/tls/review-mitm.ts` → "합계 16개, 실패 0개"(전: 1개).
 - 계획과 달라진 점: 범위의 "필요하면 새 도우미 `_tls4c.ts`"는 만들었다. 범위에 없던 `scripts/review/`는 바꾸지 않았다(재실행만). 사례 배정 변경 없음. TLS·TLS-T를 ✅로(보고서 승인, 이 문서 커밋).
-- [TLS-4c] 완료: 5fd1dab..(이 문서 커밋). 다음: 병합 → `check-method --id TLS-4c` → INFRA-10.
+- [TLS-4c] 완료: 5fd1dab..cb8da6a, 병합 188a042 + 이 기록 커밋. 다음: INFRA-10.
+- `node scripts/check-method.mjs --id TLS-4c`(188a042) → 11개 중 10 ✅, **message-format ❌**(b0f9429, 15d958f, 9dc3d7d): "검증" 줄을 `- 검증(이 커밋 시점, …):`으로 써서 검사기가 `- 검증:`을 찾지 못함. 내용은 있다. TLS-1b와 같은 실수다. TLS 보고서 결정 17(이력 재작성 없음)에 따라 남긴다. INFRA-10에서 다룰지 정한다(형식을 고정할지, 검사기가 괄호를 허용할지) [추측: 커밋 메시지 서식을 파일로 쓰는 O45 절차에 "검증:" 서식도 함께 넣으면 막힌다].
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
