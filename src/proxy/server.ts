@@ -9,11 +9,15 @@
 //  - 오류 응답은 고정 문구의 text/plain이다. 요청 내용을 되돌려 보내지 않는다 (B12: 브라우저는 프록시의 오류 페이지를
 //    목적지 사이트의 출처로 보여 주므로, 입력을 반영하면 그 사이트에 XSS가 생긴다).
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
+import tls from 'node:tls';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
 import { createBodyCapture, headerPairs, rawPath, parseTarget, type Flow, type FlowStart } from '../flow/flow.ts';
-import { openTunnel, parseConnectTarget, defaultLookup, defaultConnect, type Lookup, type ConnectUpstream } from '../tls/tunnel.ts';
+import { openTunnel, parseConnectTarget, defaultLookup, defaultConnect, writeRefusal, type Lookup, type ConnectUpstream } from '../tls/tunnel.ts';
+import { openMitm, createCertCache, routeOf, type MitmRoute } from '../tls/mitm.ts';
+import type { CA } from '../ca/ca.ts';
 
 const BIND_HOST = '127.0.0.1';
 const SELF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -66,6 +70,39 @@ function validateFraming(req: http.IncomingMessage): Rejection | undefined {
 
 const LOOP = { status: 508, message: '508 Loop Detected: 요청이 이 프록시로 되돌아옵니다.' };
 
+// [TLS-4] 터널 안 요청은 CONNECT로 정한 사이트에만 간다(사용자 결정 2). Host나 absolute-form 대상이 다르면 421(RFC 9110 15.5.20).
+// 다른 곳으로 보내면 CONNECT에서 한 주소·루프 검사를 비켜 간다(사례 E1·E3)
+const MISDIRECTED = { status: 421, message: '421 Misdirected Request: 이 연결은 다른 사이트용입니다.' };
+const bareName = (h: string) => h.toLowerCase().replace(/\.$/, '');
+function checkRoute(req: http.IncomingMessage, target: string, route: MitmRoute): Rejection | undefined {
+  const same = (u: URL) => bareName(u.hostname) === route.host && (u.port ? Number(u.port) : 443) === route.port;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
+    let u: URL;
+    try {
+      u = new URL(target);
+    } catch {
+      return bad('요청 URL을 해석할 수 없습니다.');
+    }
+    if (u.protocol !== 'https:' || u.username || u.password || !same(u)) return MISDIRECTED;
+  } else if (!target.startsWith('/')) return bad('이 요청 대상은 지원하지 않습니다.');
+  const h = req.headers.host;
+  if (h === undefined || h.trim() === '') return bad('Host 헤더가 없습니다.'); // RFC 9112 3.2: Host가 없으면 400(MUST)
+  if (/[@/?#\\]/.test(h)) return MISDIRECTED;
+  let u: URL;
+  try {
+    u = new URL(`https://${h.trim()}/`);
+  } catch {
+    return MISDIRECTED;
+  }
+  return same(u) ? undefined : MISDIRECTED;
+}
+// [TLS-4] 목적지 인증서를 믿을 수 없을 때 Node가 내는 코드(OpenSSL 검증 결과 + 이름 불일치) [확인됨: scripts/probe/tls4-node.mjs E98 — 만료·자체 서명·이름 불일치·모르는 CA]
+const CERT_ERRORS = new Set([
+  'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'CERT_SIGNATURE_FAILURE', 'CERT_REVOKED', 'CERT_UNTRUSTED', 'CERT_REJECTED',
+  'INVALID_CA', 'PATH_LENGTH_EXCEEDED', 'INVALID_PURPOSE', 'HOSTNAME_MISMATCH', 'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
 // [PRX-2] 구독자를 부른다. 중계가 끝난 뒤(setImmediate) 부르고, 구독자의 예외·reject는 삼킨다.
 // 오류 내용은 출력하지 않는다: 구독자가 기록을 담은 오류를 던질 수 있고, 기록에는 쿠키·토큰이 원본 그대로 있다 (I1, I2, D12)
 // [PRX-3] 시작 알림(onFlowStart)에도 같은 방식을 쓴다
@@ -103,6 +140,8 @@ export async function startProxy({
   tunnel = false, // [TLS-1] CONNECT를 복호화 없이 통과시킬까. 기본은 꺼짐(501) — npm start(src/index.ts)가 켠다
   lookup = defaultLookup, // [TLS-1] 이름 해석. 테스트에서 인터넷에 묻지 않게 바꿔 끼운다
   connectUpstream = defaultConnect, // [TLS-1b] 터널의 목적지 TCP 연결. 테스트에서 연결이 끝나지 않는 목적지를 흉내 낸다(R8)
+  ca, // [TLS-4] 있으면 CONNECT를 복호화한다(tunnel보다 우선). 루트 CA { certPem, keyPem } — loadOrCreateCA
+  upstreamCA = [], // [TLS-4] 목적지 인증서 검증에 공개 CA와 함께 믿을 CA(PEM). 검증 자체는 끄지 않는다
 }: {
   port?: number;
   upstreamTimeoutMs?: number;
@@ -113,6 +152,8 @@ export async function startProxy({
   tunnel?: boolean;
   lookup?: Lookup;
   connectUpstream?: ConnectUpstream;
+  ca?: CA;
+  upstreamCA?: string[];
 } = {}) {
   if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
   if (onFlowStart !== undefined && typeof onFlowStart !== 'function') throw new TypeError('onFlowStart는 함수여야 합니다.');
@@ -129,15 +170,20 @@ export async function startProxy({
   // 자기 자신으로 보내면 끝없이 자신에게 요청을 보내다 자원이 바닥난다 (B1, B2)
   const isSelf = (url: URL, port: number) => SELF_HOSTS.has(url.hostname.toLowerCase()) && port === selfPort;
 
-  server.on('request', (req, res) => {
+  // [TLS-4] 목적지 신뢰 목록 = Node의 공개 CA + upstreamCA. Windows 저장소는 쓰지 않는다 — 사용자가 등록한 우리 루트가 목적지 신뢰에 들어가지 않게(결정 11, 사례 A10)
+  const trust = [...tls.rootCertificates, ...upstreamCA];
+  // 요청 하나의 검사·기록·중계. 평문 프록시 요청(route 없음)과 복호화한 터널 안 요청(route = CONNECT로 정한 목적지)이 같이 쓴다
+  const handle = (req: http.IncomingMessage, res: http.ServerResponse, route?: MitmRoute) => {
     const target = req.url ?? '';
+    if (route) route.requests++;
+    const routeTarget = route && { scheme: 'https' as const, host: route.host, port: route.port, path: rawPath(target) };
 
     // [PRX-2] 기록. 중계(pipe)는 그대로 두고 'data'를 엿본다. 본문은 앞 1MiB만 별도 메모리에 복사한다 (flow.ts)
     const startedAt = Date.now();
     const t0 = performance.now();
     const id = nextFlowId++; // [PRX-3] 시작 알림과 끝 기록이 같은 id를 갖도록 요청을 받을 때 매긴다
     // 요청 머리. 시작 알림과 끝 기록에 따로 만들어 넘긴다: 한 구독자가 고쳐도 다른 쪽에 번지지 않게 (PRX-2 I4)
-    const head = () => ({ method: req.method ?? '', url: target, httpVersion: req.httpVersion, headers: headerPairs(req.rawHeaders), target: parseTarget(target) });
+    const head = () => ({ method: req.method ?? '', url: target, httpVersion: req.httpVersion, headers: headerPairs(req.rawHeaders), target: routeTarget ?? parseTarget(target) });
     if (onFlowStart) emitFlow(onFlowStart, { id, startedAt, request: head() });
     const reqBody = createBodyCapture();
     const resBody = createBodyCapture();
@@ -158,6 +204,7 @@ export async function startProxy({
           request: { ...head(), body: rq.body, bodySize: rq.size, bodyTruncated: rq.truncated },
           response: response && { ...response, body: rs.body, bodySize: rs.size, bodyTruncated: rs.truncated },
           error,
+          ...(route ? { tls: { sni: route.sni() } } : {}),
         });
       });
     }
@@ -169,25 +216,49 @@ export async function startProxy({
     if (hasOwnVia(req.headers.via)) return refuse(LOOP, 'loop');
     const rejected = validateHost(req) ?? validateFraming(req);
     if (rejected) return refuse(rejected);
-    const checked = validateTarget(target);
-    if ('status' in checked) return refuse(checked);
-    const url = checked.url;
-
-    const port = url.port ? Number(url.port) : 80;
-    if (isSelf(url, port)) return refuse(LOOP, 'loop');
-
     const headers = stripHopByHop(req.headers);
-    headers.host = url.host; // 요청 URL의 호스트가 기준이다. 클라이언트가 보낸 Host는 무시한다 (C14, RFC 9112 3.2.2)
     headers.via = addVia(req.headers.via);
-
-    const upstream = http.request({
-      host: url.hostname.replace(/^\[|\]$/g, ''), // IPv6 리터럴 [::1] → ::1
-      port,
-      method: req.method,
-      path: rawPath(target),
-      headers,
-      agent: false,
-    });
+    let upstream: http.ClientRequest;
+    if (route) {
+      const misdirected = checkRoute(req, target, route);
+      if (misdirected) return refuse(misdirected);
+      headers.host = route.port === 443 ? route.host : `${route.host}:${route.port}`;
+      const bare = route.host.replace(/^\[|\]$/g, '');
+      // 사례 A8: rejectUnauthorized를 명시한다. 기본값에 맡기면 NODE_TLS_REJECT_UNAUTHORIZED=0이 검증을 끈다 [확인됨: E95].
+      // 연결은 CONNECT 때 검사한 주소로(C1), 인증서 이름 검사는 CONNECT 이름으로. SNI에는 IP를 넣지 않는다(RFC 6066, 사례 A11)
+      const addrs = route.addresses.map((a) => ({ address: a, family: net.isIP(a) }));
+      upstream = https.request({
+        // 이름 대신 검사한 주소만 돌려주는 lookup — 다시 해석하지 않고, 여러 주소면 차례로 시도한다(autoSelectFamily)
+        host: net.isIP(bare) ? bare : route.host,
+        lookup: ((_h: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) => (opts?.all ? cb(null, addrs) : cb(null, addrs[0].address, addrs[0].family))) as never,
+        autoSelectFamily: true,
+        port: route.port,
+        servername: net.isIP(bare) ? undefined : bare,
+        checkServerIdentity: (_h, cert) => tls.checkServerIdentity(bare, cert),
+        ca: trust,
+        rejectUnauthorized: true,
+        ALPNProtocols: ['http/1.1'],
+        method: req.method,
+        path: rawPath(target),
+        headers,
+        agent: false,
+      });
+    } else {
+      const checked = validateTarget(target);
+      if ('status' in checked) return refuse(checked);
+      const url = checked.url;
+      const port = url.port ? Number(url.port) : 80;
+      if (isSelf(url, port)) return refuse(LOOP, 'loop');
+      headers.host = url.host; // 요청 URL의 호스트가 기준이다. 클라이언트가 보낸 Host는 무시한다 (C14, RFC 9112 3.2.2)
+      upstream = http.request({
+        host: url.hostname.replace(/^\[|\]$/g, ''), // IPv6 리터럴 [::1] → ::1
+        port,
+        method: req.method,
+        path: rawPath(target),
+        headers,
+        agent: false,
+      });
+    }
     // [PRX-2b] Node 클라이언트는 응답 헤더가 1,000개를 넘으면 나머지를 오류 없이 버린다(뒤에 있던 Content-Length까지)
     // [확인됨: scripts/probe/prx2b-g9.mjs]. 그러면 브라우저와 기록이 목적지가 보낸 것과 달라진다 (G9).
     // 개수 제한을 풀어도 헤더 전체 크기 제한(maxHeaderSize 16KB, 넘으면 502 — PRX-1c D16)이 메모리를 묶는다.
@@ -219,6 +290,11 @@ export async function startProxy({
       if (res.destroyed) return; // 클라이언트가 먼저 끊어서 우리가 목적지 요청을 멈춘 경우(아래 req 'error'). 원인은 클라이언트다
       // [PRX-3] 결정 10: 응답은 왔지만 HTTP로 해석할 수 없으면(Node의 HPE_* 오류) bad-response, 연결 자체가 안 되면 unreachable
       // [확인됨: scripts/probe/prx3-errcode.mjs — 깨진 상태 줄 HPE_INVALID_CONSTANT, 헤더 초과 HPE_HEADER_OVERFLOW, 닫힌 포트 ECONNREFUSED]
+      // [TLS-4] 목적지 인증서를 믿을 수 없으면 중계하지 않고 터널 안에서 502(사용자 결정 4). 가짜 인증서로 실패를 가리지 않는다(Durumeric 외 2017)
+      if (route && CERT_ERRORS.has(err.code ?? '')) {
+        fail({ by: 'upstream', code: 'bad-certificate', status: 502 });
+        return reply(res, 502, '502 Bad Gateway: 목적지 서버의 인증서를 믿을 수 없습니다.');
+      }
       const code = timeout ? 'timeout' : err.code?.startsWith('HPE_') ? 'bad-response' : 'unreachable';
       fail({ by: 'upstream', code, status: timeout ? 504 : 502 });
       if (timeout) reply(res, 504, '504 Gateway Timeout: 목적지 서버가 응답하지 않습니다.');
@@ -226,7 +302,22 @@ export async function startProxy({
     });
     req.on('error', () => (fail({ by: 'client', code: 'aborted' }), upstream.destroy()));
     req.pipe(upstream);
-  });
+  };
+  server.on('request', (req, res) => handle(req, res));
+
+  // [TLS-4] 복호화한 터널 안의 HTTP를 해석하는 안쪽 서버. 연결은 openMitm이 TLS 소켓을 넘겨준다(listen하지 않음)
+  const certs = ca && createCertCache(ca);
+  const inner = ca && http.createServer({ headersTimeout: headersTimeoutMs, requestTimeout: 0, connectionsCheckingInterval: Math.max(50, Math.min(1000, Math.floor(headersTimeoutMs / 2))) });
+  if (inner) {
+    inner.on('request', (req, res) => {
+      const route = routeOf(req.socket);
+      if (!route) return res.destroy(); // 이 서버에는 openMitm이 넘긴 소켓만 온다
+      handle(req, res, route);
+    });
+    // 사례 E4: 터널 안의 CONNECT(중첩 터널)는 받지 않는다
+    inner.on('connect', (_req, socket: Socket) => writeRefusal(socket, 400, '터널 안에서는 CONNECT를 쓸 수 없습니다.', VIA_ID));
+    inner.on('clientError', (_e, socket) => socket.destroy());
+  }
 
   // CONNECT(HTTPS 터널)는 TLS 단계에서 만든다. 처리기가 없으면 Node는 응답 없이 연결을 끊으므로(실측), 501을 직접 보낸다 (C18)
   // [TLS-1] 열린 터널의 소켓. http 서버의 관리 밖이라 closeAllConnections()가 닫지 않는다 → close()에서 직접 닫는다
@@ -235,7 +326,7 @@ export async function startProxy({
     // 이 소켓은 http 서버의 관리에서 벗어난 원시 소켓이다. 클라이언트가 응답을 받자마자 연결을 리셋하면(curl이 실제로 그렇게 함)
     // 'error'가 나는데, 처리기가 없으면 Node가 프로세스를 종료한다 [확인됨: PRX-1 실측]. 여기서는 정리만 하면 된다.
     socket.on('error', () => socket.destroy());
-    if (tunnel) {
+    if (tunnel || ca) {
       const startedAt = Date.now();
       const t0 = performance.now();
       const id = nextFlowId++;
@@ -254,6 +345,26 @@ export async function startProxy({
         const r = validateHost(req);
         return r && { status: r.status, message: r.message.replace(/^400 Bad Request: /, ''), code: 'rejected' as const };
       })();
+      if (ca && certs && inner) {
+        void openMitm({
+          req,
+          socket,
+          head,
+          selfPort,
+          lookup,
+          viaId: VIA_ID,
+          rejected: rejected ? { ...rejected, message: rejected.message.replace(/^508 Loop Detected: /, '') } : undefined,
+          certs,
+          inner,
+          track: (s) => (tunnels.add(s), s.once('close', () => tunnels.delete(s))),
+          // 결정 7: 터널 안 요청이 있었으면 그 요청들이 기록이다(end = undefined) — CONNECT 기록은 거절·핸드셰이크 실패·빈 터널일 때만
+          finish: (end) => {
+            if (!onFlow || !end) return;
+            emitFlow(onFlow, { id, startedAt, durationMs: performance.now() - t0, request: { ...head0(), body: Buffer.allocUnsafeSlow(0), bodySize: 0, bodyTruncated: false }, ...end });
+          },
+        });
+        return;
+      }
       void openTunnel({
         req,
         socket,
@@ -287,6 +398,6 @@ export async function startProxy({
   return {
     port: selfPort,
     address: () => server.address() as AddressInfo,
-    close: () => new Promise<void>((resolve) => (server.closeAllConnections(), tunnels.forEach((s) => s.destroy()), server.close(() => resolve()))),
+    close: () => new Promise<void>((resolve) => (server.closeAllConnections(), inner?.closeAllConnections(), tunnels.forEach((s) => s.destroy()), server.close(() => resolve()))),
   };
 }
