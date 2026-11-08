@@ -1242,6 +1242,30 @@
 - 범위 밖 관찰: (1) W1~W4([::1] 쪽 놓침 — ui2b-cases) → UI 보고서 결정 항목. (2) TLS-4c-regression K7이 전체 실행에서 한 번 실패 — 시간 민감(O43) [추측: 내용 안 봄].
 - [UI-2b] 완료: 9c06ab3..eb6fd2a, 병합 f95faae. `node scripts/check-method.mjs --id UI-2b`(f95faae) → 10개 ✅, test-unchanged ⚠ 허용됨(2ba1f82), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: `feat/UI-3`을 main 위로 옮겨 이어 간다.
 
+### [UI-3] 계획
+- 근거: 사용자 지시(2026-11-08) "일단 원래 계획대로 만들자"(패킷 스니핑이 아니라 프록시 방식으로 계속 — 목적 나무 "하지 않을 것" 그대로). 배정 `docs/ai/ui-cases.md` "UI-3"(U7, U8, U20 서버, U30 서버, U35), STO 보고서 결정 6(목록 순서·before·전체 개수·요약 칸은 UI 첫 작은 단위에서 정한다). 접근 보호(Host·Origin·토큰)는 UI-1이 이미 하고, 이 단위는 그 뒤의 경로만 더한다 — 사례는 UI-T 계획 때 받은 것을 쓴다(UI-1과 같은 방식, O10).
+- 미확인 항목(O13): 변화 없음(모두 세션 밖 조건). 새로: Chrome·Edge·Firefox가 프록시 설정에서 loopback을 기본으로 빼는지(UI-2 안내 문구와 F5 개발 앱 기록에 영향) — 세션 밖 조건 필요(실제 브라우저, UI 큰 단위 보고서 실측 때).
+- UI-T가 고정한 모양 [확인됨: test/ui/UI-T.test.ts 205~262]: `GET /api/flows?method=&host=&status=` → `{ runId, items }`(content-type json, no-store), 요약에 본문·쿠키 없음. `GET /api/flows/<id>` 상세에 쿠키 있음. `/body/request`·`/body/response` → octet-stream 원본. `GET /api/clear` 405, `POST /api/clear`(json) 204 → 목록 0건.
+- 설계 [추측]:
+  - 새 `src/dashboard/api.ts` `handleApi(store, method, pathname, query, headers)` → `{ status, json? | bytes? | allow? | text? }`. 응답 쓰기는 server.ts가 한다(보안 헤더·고정 문구를 한곳에서).
+  - 목록 `GET /api/flows`: 조건 이름은 host·method·status·after·limit만, 같은 이름 두 번·모르는 이름·숫자가 아닌 status·after·limit(`^\d{1,15}$`만)·parseFilter가 거절한 값은 400 고정 문구(입력을 넣지 않음 — U30). limit 기본 500, 500보다 크면 500(D-13, U35). 순서는 저장소 그대로(id 오름차순 — STO-3). 응답 `{ runId, items, next }`, next = 받은 수가 limit과 같으면 마지막 id(다음 쪽은 `after=next`), 아니면 null.
+  - 상세 `GET /api/flows/<id>`: id는 `^[1-9][0-9]{0,15}$`만(아니면 404). 완료 기록만(진행 중·없는 id 404). 본문은 넣지 않고 bodySize·bodyTruncated만, 헤더는 받은 쌍 배열 그대로(`__proto__` 이름도 데이터로 — U24 서버 쪽).
+  - 본문 `GET /api/flows/<id>/body/request|response`: `application/octet-stream` + `Content-Disposition: attachment`(원래 Content-Type으로 렌더하지 않음 — U20, nosniff는 UI-1). 응답이 없는 기록은 404.
+  - 지우기 `POST /api/clear`: Content-Type이 `application/json`(매개변수 허용)이 아니면 415(폼·no-cors CSRF는 이 형식을 못 보낸다 — U6·U7), 맞으면 204. 다른 메서드는 405 + Allow.
+  - 읽기 경로는 GET만(그 밖 405 + Allow: GET). 부작용 있는 GET 없음(U7). JSON은 객체로 시작해서 `<script src>`로 실행되지 않는다(U8 — 토큰 헤더도 필요).
+  - `/api/events`는 UI-4. 이 단위에서는 지금처럼 404.
+  - → 결정 항목(UI 보고서, STO 결정 6): 순서는 오래된 것부터 + after 페이지(최신 순·before·전체 개수 없음), 요약 칸은 지금 그대로(content-type·잘림 여부는 상세에서), limit 초과는 거절이 아니라 500으로 줄임.
+- 한 줄 보고: 목표 = 대시보드가 저장소의 목록·상세·본문을 토큰 있는 요청에만 보여 주고 지우기를 POST로만 받는다 / 범위 =
+  - 새 `src/dashboard/api.ts`: `handleApi()`, `parseQuery()`, `detailOf()`
+  - `src/dashboard/server.ts`: `/api/*` 분기에서 `handleApi` 호출, `fail()`에 고정 문구 하나 더(400 조회 조건·415)
+  - 새 `test/ui/UI-3.test.ts`(새 동작), 새 `test/ui/UI-3-regression.test.ts`(구현 전에도 통과해야 정상 — 새 경로도 토큰 없으면 401, 다른 Origin 403, O9)
+  - `docs/ai/map.md`, `docs/for-me/UI-3.md`, `docs/ai/progress.md`, `docs/ai/purpose-tree.md`
+  - 하지 않을 것 = SSE(UI-4), 화면(UI-5), 저장소(src/store) 변경, 최신 순·전체 개수, 기존 테스트 수정
+- 예상 [추측] (판정 기준 포함):
+  - E178: 테스트는 `startDashboard`만 부르므로 stub은 `handleApi`가 늘 `{ status: 404 }`를 돌려주는 api.ts(server.ts는 아직 부르지 않음). `npm run test:red -- test/ui/UI-3.test.ts` → 새 동작 테스트가 모두 assertion 실패(지금은 /api/ping 말고 모두 404), 오류 0. `npm test -- test/ui/UI-3-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E179: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, "큰 단위 대기(todo) UI: 2개", 5분 안. 판정: 넷 다면 일치.
+  - E180(O31, 실제 클라이언트): `npm.cmd start -- --port 18080` 뒤 `curl.exe -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:<바로 띄운 목적지>/x`(목적지는 `node -e`로 127.0.0.1:18090에 띄운 작은 http 서버 — 명령 원문은 실측 기록에) → 대시보드에 `curl.exe -H "Authorization: Bearer <토큰>"`로 `/api/flows` 200 JSON 1건(쿠키 없음), `/api/flows/<id>` 쿠키 있음, `/api/flows/<id>/body/request` = `curl-body`(octet-stream, attachment), `-X POST -H "Content-Type: application/json" -d {} /api/clear` 204, 다시 목록 0건. 판정: 다섯 다면 일치.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
