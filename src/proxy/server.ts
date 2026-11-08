@@ -97,6 +97,8 @@ function checkRoute(req: http.IncomingMessage, target: string, route: MitmRoute)
   return same(u) ? undefined : MISDIRECTED;
 }
 // [TLS-4] 목적지 인증서를 믿을 수 없을 때 Node가 내는 코드(OpenSSL 검증 결과 + 이름 불일치) [확인됨: scripts/probe/tls4-node.mjs E98 — 만료·자체 서명·이름 불일치·모르는 CA]
+// 기록에 넣는 오류 코드는 모양을 확인한다(대문자·숫자·밑줄, 64자) — 다른 글자가 섞이면 UNKNOWN
+const safeCode = (c: string | undefined) => (c && /^[A-Z0-9_]{3,64}$/.test(c) ? c : 'UNKNOWN');
 const CERT_ERRORS = new Set([
   'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
   'UNABLE_TO_GET_ISSUER_CERT', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'CERT_SIGNATURE_FAILURE', 'CERT_REVOKED', 'CERT_UNTRUSTED', 'CERT_REJECTED',
@@ -142,6 +144,7 @@ export async function startProxy({
   connectUpstream = defaultConnect, // [TLS-1b] 터널의 목적지 TCP 연결. 테스트에서 연결이 끝나지 않는 목적지를 흉내 낸다(R8)
   ca, // [TLS-4] 있으면 CONNECT를 복호화한다(tunnel보다 우선). 루트 CA { certPem, keyPem } — loadOrCreateCA
   upstreamCA = [], // [TLS-4] 목적지 인증서 검증에 공개 CA와 함께 믿을 CA(PEM). 검증 자체는 끄지 않는다
+  tlsHandshakeTimeoutMs = 10_000, // [TLS-4b] 복호화: 200 뒤 이 시간 안에 클라이언트 TLS 핸드셰이크가 끝나지 않으면 닫는다(결정 8)
 }: {
   port?: number;
   upstreamTimeoutMs?: number;
@@ -154,6 +157,7 @@ export async function startProxy({
   connectUpstream?: ConnectUpstream;
   ca?: CA;
   upstreamCA?: string[];
+  tlsHandshakeTimeoutMs?: number;
 } = {}) {
   if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
   if (onFlowStart !== undefined && typeof onFlowStart !== 'function') throw new TypeError('onFlowStart는 함수여야 합니다.');
@@ -190,6 +194,7 @@ export async function startProxy({
     let response: Omit<NonNullable<Flow['response']>, 'body' | 'bodySize' | 'bodyTruncated'> | undefined;
     let error: Flow['error'];
     const fail = (e: NonNullable<Flow['error']>) => (error ??= e); // 처음 일어난 실패가 원인이다
+    let upstreamError: string | undefined; // [TLS-4b] 목적지 TLS 실패 코드(결정 9 조정)
     if (onFlow) {
       req.on('data', (c: Buffer) => reqBody.push(c));
       // 'close'는 응답을 다 보냈을 때와 중간에 끊겼을 때 모두 한 번 온다 → 요청당 정확히 한 번 기록한다 (I5)
@@ -204,7 +209,7 @@ export async function startProxy({
           request: { ...head(), body: rq.body, bodySize: rq.size, bodyTruncated: rq.truncated },
           response: response && { ...response, body: rs.body, bodySize: rs.size, bodyTruncated: rs.truncated },
           error,
-          ...(route ? { tls: { sni: route.sni() } } : {}),
+          ...(route ? { tls: { sni: route.sni(), ...(upstreamError ? { upstreamError } : {}) } } : {}),
         });
       });
     }
@@ -222,6 +227,8 @@ export async function startProxy({
     if (route) {
       const misdirected = checkRoute(req, target, route);
       if (misdirected) return refuse(misdirected);
+      // [TLS-4b] 결정 6: 터널 안의 프로토콜 전환(WebSocket·h2c)은 받지 않는다. 그대로 두면 Upgrade 헤더를 뗀 일반 요청으로 바뀌어 간다 [확인됨: tls4b-node.mjs E105]
+      if (req.headers.upgrade !== undefined) return refuse({ status: 501, message: '501 Not Implemented: 터널 안의 프로토콜 전환(WebSocket 등)은 지원하지 않습니다.' });
       headers.host = route.port === 443 ? route.host : `${route.host}:${route.port}`;
       const bare = route.host.replace(/^\[|\]$/g, '');
       // 사례 A8: rejectUnauthorized를 명시한다. 기본값에 맡기면 NODE_TLS_REJECT_UNAUTHORIZED=0이 검증을 끈다 [확인됨: E95].
@@ -292,8 +299,15 @@ export async function startProxy({
       // [확인됨: scripts/probe/prx3-errcode.mjs — 깨진 상태 줄 HPE_INVALID_CONSTANT, 헤더 초과 HPE_HEADER_OVERFLOW, 닫힌 포트 ECONNREFUSED]
       // [TLS-4] 목적지 인증서를 믿을 수 없으면 중계하지 않고 터널 안에서 502(사용자 결정 4). 가짜 인증서로 실패를 가리지 않는다(Durumeric 외 2017)
       if (route && CERT_ERRORS.has(err.code ?? '')) {
+        upstreamError = safeCode(err.code);
         fail({ by: 'upstream', code: 'bad-certificate', status: 502 });
         return reply(res, 502, '502 Bad Gateway: 목적지 서버의 인증서를 믿을 수 없습니다.');
+      }
+      // [TLS-4b] 인증서가 아닌 TLS 실패: 목적지가 h2만·평문 TCP·옛 TLS·클라이언트 인증서 요구 [확인됨: E106 — EPROTO, ERR_SSL_*]
+      if (route && (err.code === 'EPROTO' || err.code?.startsWith('ERR_SSL_'))) {
+        upstreamError = safeCode(err.code);
+        fail({ by: 'upstream', code: 'tls-handshake', status: 502 });
+        return reply(res, 502, '502 Bad Gateway: 목적지 서버와 TLS 연결을 맺지 못했습니다.');
       }
       const code = timeout ? 'timeout' : err.code?.startsWith('HPE_') ? 'bad-response' : 'unreachable';
       fail({ by: 'upstream', code, status: timeout ? 504 : 502 });
@@ -356,6 +370,7 @@ export async function startProxy({
           rejected: rejected ? { ...rejected, message: rejected.message.replace(/^508 Loop Detected: /, '') } : undefined,
           certs,
           inner,
+          handshakeTimeoutMs: tlsHandshakeTimeoutMs,
           track: (s) => (tunnels.add(s), s.once('close', () => tunnels.delete(s))),
           // 결정 7: 터널 안 요청이 있었으면 그 요청들이 기록이다(end = undefined) — CONNECT 기록은 거절·핸드셰이크 실패·빈 터널일 때만
           finish: (end) => {
