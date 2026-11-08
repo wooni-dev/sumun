@@ -52,7 +52,7 @@
  └ [SEC] 안전장치 — 왜: MITM 도구는 잘못 쓰면 내 PC의 보안 구멍이 됨     ⬜  모든 기능에 걸침
      ├ [SEC-1] 127.0.0.1 바인딩 (PRX-1, UI에서 함께 검증)
      ├ [SEC-2] CA 키를 저장소 밖에 두고 git에서 제외 (TLS-2에서 함께 검증)
-     └ [SEC-3] CA 등록·해제 명령과 안내 ⚠ Windows 인증서 저장소를 바꾸므로 사용자 확인 필요
+     └ [SEC-3] CA 등록·해제 명령과 안내 ⚠ Windows 인증서 저장소를 바꾸므로 사용자 확인 필요   ✅  → src/ca/winstore.ts, src/ca/command.ts, src/ca-cmd.ts  (sec3-cases.md 배정 "3")
 ```
 
 ## 개발 순서 (Claude 제안, 사용자 승인 대기)

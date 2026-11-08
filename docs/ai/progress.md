@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [INFRA-10] 완료(main 4e45d02). 다음: SEC-3(루트 CA 등록·해제 — 시작 전에 사용자에게 설명·확인).
+- 작업: [SEC-3] 완료(feat/SEC-3, 병합 대기). 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다음: STO. 사용자 확인 대기: SEC-3 테스트 결함(forgeCert UTF-8), 남은 예전 테스트 프로세스 4개.
   - 세션 시작 대조(2026-11-08): main = 00248ae, `npm test` 523/523, 실패 0, 대기 0 [확인됨] — 기록과 일치.
   - 순서: ~~① TLS-4c~~ 완료 → ~~② TLS ✅(O37)~~ 완료 → ~~③ INFRA-10~~ 완료(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
   - 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로(`[TLS]`로 하면 check-method가 작은 단위로 판정 — d642a81 보고서 실행 증거 5).
@@ -718,6 +718,51 @@
   - E120 일치(5bddebe): `npm test` → 566 / 566 / 실패 0 / 대기 0.
 - 계획과 달라진 점: 없음. 비교에 쓴 임시 폴더는 지웠다 [추측: 결과는 위 명령으로 재현 가능하므로 O19 위반은 아님 — 비교 스크립트가 아니라 같은 CLI를 두 버전으로 실행한 것].
 - [INFRA-10] 완료: 6228f88..f32a277, 병합 4e45d02 + 이 기록 커밋. `node scripts/check-method.mjs --id INFRA-10`(4e45d02) → 10개 ✅, tree-updated ➖(INFRA). predictions-measured "예상 E117, E118, E120 모두 실측 기록 있음 / 탐색 E119 기록 있음" — 새 판정 요구가 처음 적용된 작업. 다음: SEC-3.
+
+### [SEC-3] 계획
+- 근거: 사용자 지시(2026-11-08) "SEC-3 진행해". TLS 보고서 결정 18(TLS-4c → TLS ✅ → INFRA-10 → SEC-3). 2026-11-07 결정: 등록 범위 = 현재 사용자(CurrentUser\Root).
+- 미확인 항목(O13): 변화 없음.
+- 시작 전 상태(읽기만, 2026-11-08) [확인됨]: `%LOCALAPPDATA%\sumun\ca` 없음, `Cert:\CurrentUser\Root`·`Cert:\LocalMachine\Root`에 이름에 sumun이 든 인증서 없음, `C:\Windows\system32\certutil.exe` 있음.
+- 보안 사례(O10): 별도 컨텍스트 검토 에이전트 → `docs/ai/sec3-cases.md`(A1~A11, B1~B8, C1~C7, D1~D8, E1~E4, F1~F6, G1~G8). 저장소를 바꾸는 명령은 금지하고 읽기만 했다. 사용자 결정 1~8 모두 추천대로(같은 문서).
+- 이전 단위에서 넘겨받은 사례: tls2-cases 4(EKU를 Windows가 지키는지 → G6), 50(재생성 뒤 옛 등록 CA → B5·F1), tls4-cases H1·H4(실제 브라우저 → G1), tls4c-cases의 preconnect 재연결(→ 브라우저 실측에서 관찰), curl `--ssl-no-revoke`(→ G3).
+- 설계 [추측]: 저장소 읽기는 certutil 출력(CP949·언어 의존)을 해석하지 않고 레지스트리 `HKCU\Software\Microsoft\SystemCertificates\Root\Certificates`(사용자 물리 저장소)와 `HKLM\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates`(컴퓨터)를 `reg.exe query`로 읽는다. 키 이름 = SHA-1, `Blob` 값 안의 속성 32 = 인증서 DER → 꺼낸 DER의 SHA-1이 키 이름과 같은지로 스스로 검증한다. 등록 `certutil -user -addstore Root <임시 DER>`, 삭제 `certutil -user -delstore Root <40자리 SHA-1>`, 관리자 여부는 `whoami /groups`의 무결성 SID(S-1-16-12288 이상 = 승격). 폴더 권한은 `ca.ts`의 `daclOf()`(icacls `/save` SDDL)를 다시 쓴다.
+- 한 줄 보고: 목표 = 사용자가 직접 실행하는 루트 CA 등록·해제·상태 명령(사람 확인 두 번, 다른 인증서는 절대 건드리지 않음)과 실제 브라우저 확인 / 범위 =
+  - 새 `src/ca/winstore.ts`: `parseRegCerts()`(reg 출력 → 인증서 목록), `blobToDer()`(속성 32), `makeWinStore(run)`(사용자·컴퓨터 Root 읽기, `add(der)`, `remove(sha1)`, `elevated()`), 도구 절대 경로 상수
+  - 새 `src/ca/command.ts`: `parseCaArgs()`, `runCaCommand(cmd, deps)`(install·uninstall·status, 확인 입력, 표시 이스케이프, 옛 CA 판정, 폴더 검사, 결과 재조회). 실행기·입력·출력·CA 폴더·저장소를 주입받는다(테스트는 가짜)
+  - 새 `src/ca-cmd.ts`(실행 진입점, 진짜 의존성 연결), `src/ca/ca.ts`: `daclOf()`를 export(내용 변경 없음)
+  - `package.json`: `scripts.ca = "node src/ca-cmd.ts"`
+  - 새 `test/ca/SEC-3.test.ts`(새 동작), 새 `test/ca/SEC-3-regression.test.ts`(있으면), 새 `scripts/probe/sec3-*.mjs`(레지스트리·whoami 읽기 실측, 실제 등록 뒤 브라우저·curl 실측)
+  - `docs/ai/sec3-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/SEC-3.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = **Claude가 저장소를 바꾸는 명령을 실행하는 것**(등록·해제는 사용자가 자기 터미널에서 직접), LocalMachine 저장소 쓰기, Firefox 설정 변경, 폐기 목록(CRL) 제공, `loadOrCreateCA`의 검사 규칙 변경(A1·A2·A7은 등록 단계에서 막는다 — 재배정 아님: 사례 배정이 처음부터 등록 단계), 프록시 코드 변경
+- 예상 [추측] (판정 기준 포함):
+  - E121: 컴퓨터 Root 레지스트리(`reg query HKLM\SOFTWARE\Microsoft\SystemCertificates\Root\Certificates /s /v Blob`)의 모든 항목에서 Blob의 속성 32를 꺼내면 DER 인증서이고, 그 SHA-1이 키 이름과 같다. 판정: 항목 수 ≥ 1이고 모두 같으면 일치.
+  - E122: 그 레지스트리 항목의 SHA-1은 모두 `Cert:\LocalMachine\Root`(합친 보기) 안에 있다. 판정: 하나도 빠지지 않으면 일치.
+  - E123: 사용자 Root 레지스트리(HKCU)는 지금 항목 0개다(에이전트의 certutil -user 0개와 같음). 판정: 0개면 일치.
+  - E124: 이 터미널(승격 아님)의 `whoami /groups`에는 `S-1-16-8192`가 있고 `S-1-16-12288`은 없다. 판정: 둘 다 그러면 일치.
+  - E125: 새 동작 테스트는 stub(빈 함수만 export)에서 모두 assertion 실패, 오류 0(O2). 판정: 실패 수 = 테스트 수, 오류 0.
+  - E126: 구현 뒤 `npm test` 실패 0, 대기 0. 판정: 둘 다.
+  - E127 실측(사용자가 실행): `npm run ca -- install`의 확인 화면에 보인 SHA-1이 Windows 확인 창의 지문과 같고, 등록 뒤 `npm run ca -- status`가 "사용자 Root에 등록됨, 컴퓨터 Root 없음"이다. 판정: 지문 같음(사용자 확인) + status 두 줄이 그러면 일치.
+  - E128 실측: 임시 프로필 Chrome(`--proxy-server=127.0.0.1:<포트>`, 시스템 설정은 바꾸지 않음)이 `npm start -- --decrypt`를 거쳐 `https://example.com/`을 인증서 오류 없이 열고, 프록시 요약 줄에 `GET example.com:443 200`이 나온다. 판정: 페이지 본문에 "Example Domain"이 있고 요약 줄이 있으면 일치.
+  - E129 실측: 등록 뒤 Windows curl(`curl -x` 프록시, `--cacert` 없이)은 `--ssl-no-revoke` 없이는 실패(종료 코드 ≠ 0)하고, 붙이면 HTTP 200. 판정: 둘 다면 일치.
+  - E130 실측(사용자가 실행): `npm run ca -- uninstall` 뒤 status가 "등록 안 됨"이고, 새로 연 임시 프로필 Chrome이 같은 주소에서 인증서 오류(`ERR_CERT_AUTHORITY_INVALID`)를 낸다. 판정: 둘 다면 일치.
+  - E131 [탐색] G6: 등록한 상태에서 우리 CA로 서명한 코드 서명용 말단 인증서를 `certutil -verify`(읽기 검증)에 넣으면 EKU 때문에 거부되는지 기록한다.
+- 실측 (명령 원문):
+  - E121·E122·E123·E124 일치(0b335f1): `node scripts/probe/sec3-reg.mjs`.
+  - E125 일치(6fd100f): stub으로 22개 모두 assertion 실패, 오류 0(A1·A2는 긍정 전제를 더한 뒤 — 커밋 메시지).
+  - E126 일치(aa67ed0 뒤 작업 트리): `npm test` → 588 / 588 / 실패 0 / 대기 0.
+  - E127 일치: 사용자가 PowerShell에서 실행. `npm run ca -- install`은 PowerShell 실행 정책 때문에 `npm.ps1`이 막혔다("이 시스템에서 스크립트를 실행할 수 없으므로") → `npm.cmd run ca -- install`. 첫 실행은 "※ 새로 만든 CA입니다(처음 실행)"까지 보이고 사용자가 멈췄고, 두 번째 실행에서 yes → "sumun: 등록됨 — 지문 090295D7C1EC2FBEC70E5BC849791A4DDE0E4459". 사용자: Windows 창의 지문이 같았다. `node src/ca-cmd.ts status` → "사용자 Root: 등록됨 ⚠ …", "컴퓨터 Root: 없음". 교차 확인 `certutil -user -store Root 090295d7…` → 1개(출력 CP949), 키 파일 `icacls` → `wooni\wooni:(F)`만.
+  - E128 일치·E129 일치: `node scripts/probe/sec3-browser.mjs registered` → "Chrome: 종료 코드 0, 본문에 "Example Domain" true, 인증서 오류 표시 없음", 요약 줄 `GET example.com:443 200`, "curl(--cacert 없이): 종료 코드 35, HTTP 000 / --ssl-no-revoke: 종료 코드 0, HTTP 200". 관찰: Chrome 배경 요청 `CONNECT accounts.google.com:443 tls-handshake` — Chrome이 우리 인증서를 거부(구글 계정 도메인의 별도 보호로 보임 [추측], G5).
+  - E131 [탐색] 기록: `node scripts/probe/sec3-browser.mjs g6` 세 번. ① `-verify`만 → 둘 다 CERT_E_CHAINING(사용자 Root를 안 봄) ② `-user -verify` → 둘 다 체인 성공·폐기 확인만 실패(용도 미지정) ③ `-user -verify <파일> <용도 OID>` → serverAuth 성공, **codeSigning `CERT_E_WRONG_USAGE`(루트 단계 CERT_TRUST_IS_NOT_VALID_FOR_USAGE)** — Windows가 루트의 EKU 제한(TLS-2 결정 4)을 지킨다.
+- **실측 중 범위 안 결함(O26 ① 기록, 2026-11-08):** E130(해제) 실측에서 사용자가 `npm.cmd run ca -- uninstall`을 실행하고 "예는 눌렀는데 해제됨은 못 봤다", 창은 닫았다. 확인 [확인됨]: 사용자 Root 레지스트리에 `090295D7…`가 그대로 있고, 실행 중인 ca-cmd·certutil 프로세스는 없다(명령은 끝났다). 진짜 CA + 가짜 쓰기로 흐름 재현 → 터미널에 `예`를 입력하면 "취소했습니다"만 찍고 certutil을 부르지 않는다(Windows 창도 안 뜸). `yes`면 `-user -delstore Root 090295d7…`를 부르고, 남아 있으면 "해제되지 않았습니다(certutil 종료 코드 N)". 어느 쪽이었는지는 **화면 출력 말고는 기록이 없어 알 수 없다** — 이것이 결함이다(창을 닫으면 원인이 사라진다). CAPI2 이벤트 로그는 권한 없음, Application 로그에 관련 기록 없음.
+  - 고칠 것: ① install·uninstall의 단계·지문·certutil 종료 코드를 `%LOCALAPPDATA%\sumun\ca-command.log`에 덧붙인다(키·비밀 없음, 저장소 밖) ② 입력이 `예`·`네`·`y`처럼 "예"의 뜻이면 여전히 취소하되(결정 C1 그대로) "영어 yes를 입력해야 합니다"라고 안내한다. 고친 뒤 사용자에게 해제를 다시 부탁한다.
+  - 재현 디버그 스크립트는 작업 폴더 밖 임시 파일이었다 — 같은 재현을 ② 재현 테스트로 저장소에 둔다(O19).
+  - ② 재현 테스트 ae9ce3f(red 3/3), ③ 수정 87bea3b·a3d42f5. `npm test` → 591 / 591.
+  - E130 일치: 사용자가 다시 `npm.cmd run ca -- uninstall` → "sumun: 해제됨 — 지문 090295D7…". 기록 `%LOCALAPPDATA%\sumun\ca-command.log`: `확인 입력 "yes" → 진행` / `certutil -delstore 종료 코드 0` / `결과: 해제됨`. `node src/ca-cmd.ts status` → "사용자 Root: 등록 안 됨", `reg query HKCU\…\Root\Certificates`에 090295D7 0개. `node scripts/probe/sec3-browser.mjs unregistered` → "Chrome: … "Example Domain" false, 인증서 오류 표시 ERR_CERT_AUTHORITY_INVALID", curl 둘 다 종료 코드 60, "E130(브라우저 부분): 일치". 첫 해제 실패의 원인(터미널 "예" 입력인지 certutil 실패인지)은 끝내 모른다.
+- **테스트 결함(내가 쓴 테스트, 보고 대기):** `test/ca/SEC-3.test.ts`의 `forgeCert`는 CN을 UTF-8로 인코딩하지 않아 forge가 0xFF 위 글자를 아래 바이트로 자른다('ѕ' → 'U', U+202E → '.') [확인됨: 구현 중 디버그]. 그래서 "F1·B6·E1" 테스트는 키릴·방향 문자 사례를 실제로는 시험하지 않는다. 대신 `scripts/probe/sec3-lookalike.mjs`(d944462)로 진짜 글자를 확인했다. 고치려면 "테스트 수정 허용"이 필요하다 → 사용자 보고.
+- 남은 작은 빈틈: 거부(관리자·파이프)는 작업 기록에 시작 줄만 남고 이유가 없다.
+- 계획과 달라진 점: 범위에 없던 새 파일 `test/ca/SEC-3-log.test.ts`(O26 재현), `src/ca/ca.ts`는 `daclOf`와 함께 `me`도 export, 진입점에 작업 기록 파일(`%LOCALAPPDATA%\sumun\ca-command.log`), 실측 스크립트 3개(`sec3-reg`, `sec3-lookalike`, `sec3-browser`). E127은 PowerShell 실행 정책 때문에 `npm.cmd`로.
+- 범위 밖 관찰: 2026-11-08 오전 9:09에 시작된 `npm run test:red -- test/tls/TLS-4.test.ts` node 프로세스 4개(PID 5888·7664·8096·9296)가 아직 실행 중 — 이전 작업의 남은 프로세스로 보인다 [추측]. 종료하지 않고 사용자에게 보고.
+- [SEC-3] 완료: 8e2e616..(이 문서 커밋). 다음: 병합 → `check-method --id SEC-3` → STO.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

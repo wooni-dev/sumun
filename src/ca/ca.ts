@@ -177,7 +177,8 @@ const run = (exe: string, args: string[]) =>
     execFile(path.join(SYS, exe), args, { encoding: 'latin1', windowsHide: true }, (err, out) => (err ? reject(err) : resolve(out))),
   );
 let mySid: Promise<string> | undefined;
-const me = () =>
+// [SEC-3] me·daclOf를 등록 명령의 CA 폴더 검사(checkCADir)에도 쓴다 — 내용은 바꾸지 않고 export만
+export const me = () =>
   (mySid ??= run('whoami.exe', ['/user', '/fo', 'csv', '/nh']).then((o) => {
     const sid = o.trim().split(',').pop()?.replace(/"/g, '') ?? '';
     if (!/^S-1-\d+(-\d+)+$/.test(sid)) throw new Error('SID를 읽지 못함');
@@ -185,7 +186,7 @@ const me = () =>
   }));
 // SDDL 별칭(icacls /save가 잘 알려진 계정을 두 글자로 쓴다). 모르는 별칭은 그대로 두어 /remove:g가 실패하게 한다(실패하면 닫힘)
 const ALIAS: Record<string, string> = { SY: 'S-1-5-18', BA: 'S-1-5-32-544', BU: 'S-1-5-32-545', AU: 'S-1-5-11', WD: 'S-1-1-0', CO: 'S-1-3-0', OW: 'S-1-3-4' };
-async function daclOf(file: string) {
+export async function daclOf(file: string) {
   const out = path.join(os.tmpdir(), `sumun-acl-${process.pid}-${crypto.randomBytes(6).toString('hex')}.txt`);
   try {
     await run('icacls.exe', [file, '/save', out]);

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node src/index.ts",
+    "ca": "node src/ca-cmd.ts",
     "test": "node scripts/test.mjs",
     "test:red": "node scripts/test.mjs --red"
   },
