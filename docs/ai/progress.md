@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [INFRA-10] 완료(feat/INFRA-10, 병합 대기). 다음: SEC-3(루트 CA 등록·해제 — 시작 전에 사용자에게 설명·확인).
+- 작업: [INFRA-10] 완료(main 4e45d02). 다음: SEC-3(루트 CA 등록·해제 — 시작 전에 사용자에게 설명·확인).
   - 세션 시작 대조(2026-11-08): main = 00248ae, `npm test` 523/523, 실패 0, 대기 0 [확인됨] — 기록과 일치.
   - 순서: ~~① TLS-4c~~ 완료 → ~~② TLS ✅(O37)~~ 완료 → ~~③ INFRA-10~~ 완료(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
   - 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로(`[TLS]`로 하면 check-method가 작은 단위로 판정 — d642a81 보고서 실행 증거 5).
@@ -717,7 +717,7 @@
   - E119 [탐색] 기록: main의 check-method.mjs를 임시 폴더(`.oldcm/check-method.mjs` — 직접 실행 판정이 파일 이름 끝을 보므로 이름 그대로)에 꺼내, git 이력의 모든 PRX·INFRA·TLS 노드에 같은 `--id`로 돌려 규칙 표를 비교 → 바뀐 것은 TLS-2b·TLS-3·TLS-4·TLS-4b test-unchanged ❌→⚠, TLS-T ✅→⚠ 뿐. PRX·INFRA는 변화 없음, 새 ❌ 없음. 첫 비교는 꺼낸 파일 이름을 `.check-method-old.mjs`로 해서 출력이 비었다(직접 실행 판정 실패) → 이름을 바꿔 다시.
   - E120 일치(5bddebe): `npm test` → 566 / 566 / 실패 0 / 대기 0.
 - 계획과 달라진 점: 없음. 비교에 쓴 임시 폴더는 지웠다 [추측: 결과는 위 명령으로 재현 가능하므로 O19 위반은 아님 — 비교 스크립트가 아니라 같은 CLI를 두 버전으로 실행한 것].
-- [INFRA-10] 완료: 6228f88..(이 문서 커밋). 다음: 병합 → `check-method --id INFRA-10` → SEC-3.
+- [INFRA-10] 완료: 6228f88..f32a277, 병합 4e45d02 + 이 기록 커밋. `node scripts/check-method.mjs --id INFRA-10`(4e45d02) → 10개 ✅, tree-updated ➖(INFRA). predictions-measured "예상 E117, E118, E120 모두 실측 기록 있음 / 탐색 E119 기록 있음" — 새 판정 요구가 처음 적용된 작업. 다음: SEC-3.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
