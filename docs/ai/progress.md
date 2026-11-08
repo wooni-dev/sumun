@@ -653,7 +653,7 @@
 - **멈춤(2026-11-08): 테스트 결함 보고, 사용자 결정 대기.** 구현 뒤 TLS 계열 96개 중 95 통과. 실패 1 = `test/tls/TLS-4b.test.ts` D4. 테스트는 "200 뒤 ClientHello를 보내지 않는 클라이언트"를 시험해야 하는데, 도우미 `connectMitm`(test/tls/_mitm.ts)은 200 뒤 곧바로 TLS를 시작해 ClientHello를 보낸다. 게다가 프록시 CA를 넘기지 않아 클라이언트가 인증서를 거부 → 기록이 timeout이 아니라 tls-handshake. 구현은 맞다 [확인됨: scripts/probe/tls4b-timeout.mjs → "CONNECT 응답 HTTP/1.1 200 / ClientHello 없이 기다림 → 316ms 뒤 닫힘 / 기록 [['CONNECT',{'by':'client','code':'timeout'}]]"]. 제안: D4 앞부분을 원시 소켓으로(CONNECT만 보내고 200을 읽은 뒤 아무것도 보내지 않음) 고친다(기대값 timeout 그대로). 사용자가 "테스트 수정 허용"을 입력해야 고칠 수 있다.
 - 재개(2026-11-08): "테스트 수정 허용" → D4 앞부분을 원시 소켓으로(9f211dd). 고친 D4가 구현 전 src에서는 실패함을 확인.
 - E109 일치: `npm test` → 523 / 523 통과 / 실패 0 / 대기 0. 실제 curl(4b 실측 스크립트): `node scripts/probe/tls4b-curl.mjs` → localhost로 127.0.0.1 서버에 200.
-- 계획과 달라진 점: 결정 9를 tls.upstreamError로(계획대로). 테스트로 만들지 않은 4b 사례 A4·A6·B7·C6·F1·F2(이유는 b8913fb) → TLS 보고서 결정 항목(O28). 핸드셰이크 뒤 클라이언트가 요청 없이 끊는 CONNECT 기록(curl 폐기 확인 실패)은 오류 없이 남는 그대로 — 브라우저 사전 연결과 구별할 수 없어 바꾸지 않음 [추측] → 보고서에.
+- 계획과 달라진 점: 범위에 도우미 `test/tls/_mitm.ts`(b8913fb)를 적지 않았다(O11 — TLS 감사에서 지적). 결정 9를 tls.upstreamError로(계획대로). 테스트로 만들지 않은 4b 사례 A4·A6·B7·C6·F1·F2(이유는 b8913fb) → TLS 보고서 결정 항목(O28). 핸드셰이크 뒤 클라이언트가 요청 없이 끊는 CONNECT 기록(curl 폐기 확인 실패)은 오류 없이 남는 그대로 — 브라우저 사전 연결과 구별할 수 없어 바꾸지 않음 [추측] → 보고서에.
 - [TLS-4b] 완료: 4568edc..(문서 커밋).
 
 ## 범위 밖 문제
