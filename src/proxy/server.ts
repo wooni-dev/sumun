@@ -15,16 +15,30 @@ import tls from 'node:tls';
 import type { AddressInfo, Socket } from 'node:net';
 import { stripHopByHop, addVia, hasOwnVia, VIA_ID } from './headers.ts';
 import { createBodyCapture, headerPairs, rawPath, parseTarget, type Flow, type FlowStart } from '../flow/flow.ts';
-import { openTunnel, parseConnectTarget, defaultLookup, defaultConnect, writeRefusal, type Lookup, type ConnectUpstream } from '../tls/tunnel.ts';
+import { openTunnel, parseConnectTarget, defaultLookup, defaultConnect, writeRefusal, isDashboardLiteral, isLoopTarget, DASHBOARD_REFUSAL, type Lookup, type ConnectUpstream } from '../tls/tunnel.ts';
 import { openMitm, createCertCache, routeOf, type MitmRoute } from '../tls/mitm.ts';
 import type { CA } from '../ca/ca.ts';
 
 const BIND_HOST = '127.0.0.1';
 const SELF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
-function reply(res: http.ServerResponse, status: number, message: string) {
-  res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', via: VIA_ID });
+function reply(res: http.ServerResponse, status: number, message: string, extra: Record<string, string> = {}) {
+  res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', via: VIA_ID, ...extra });
   res.end(`${message}\n`);
+}
+// [UI-2] 대시보드 차단 응답. 브라우저는 이 응답을 대시보드 출처(http://127.0.0.1:<포트>)로 보여 주므로 입력을 넣지 않고 nosniff·no-store를 붙인다(V23)
+const replyDashboard = (res: http.ServerResponse) =>
+  reply(res, 403, `403 Forbidden: ${DASHBOARD_REFUSAL}`, { 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' });
+const DASHBOARD_LOOKUP = 'SUMUN_DASHBOARD_TARGET'; // 평문 lookup이 대시보드 주소를 만났을 때의 오류 코드
+// 평문 absolute-form의 목적지(정규화한 hostname, 포트 — 없으면 80). http://가 아니거나 해석할 수 없으면 undefined(뒤의 validateTarget이 거절한다)
+function plainHostPort(target: string): { host: string; port: number } | undefined {
+  if (!/^http:\/\//i.test(target)) return undefined;
+  try {
+    const u = new URL(target);
+    return { host: u.hostname, port: u.port ? Number(u.port) : 80 };
+  } catch {
+    return undefined;
+  }
 }
 
 // rawPath(경로 원문, 사례 C9)는 [PRX-3]에서 flow.ts로 옮겼다. 기록의 target.path와 같은 규칙을 쓰기 위해서다
@@ -145,6 +159,8 @@ export async function startProxy({
   ca, // [TLS-4] 있으면 CONNECT를 복호화한다(tunnel보다 우선). 루트 CA { certPem, keyPem } — loadOrCreateCA
   upstreamCA = [], // [TLS-4] 목적지 인증서 검증에 공개 CA와 함께 믿을 CA(PEM). 검증 자체는 끄지 않는다
   tlsHandshakeTimeoutMs = 10_000, // [TLS-4b] 복호화: 200 뒤 이 시간 안에 클라이언트 TLS 핸드셰이크가 끝나지 않으면 닫는다(결정 8)
+  dashboardPort, // [UI-2] 대시보드 포트. 있으면 이 PC 자신의 주소 + 이 포트로 가는 평문·CONNECT를 403으로 거절한다(ui2-cases E-1~E-4)
+  onDashboardRefused, // [UI-2] 대시보드 차단으로 거절할 때마다 부른다(인자 없음, 예외는 삼킨다). npm start가 안내 줄을 한 번 찍는다(E-8)
 }: {
   port?: number;
   upstreamTimeoutMs?: number;
@@ -158,9 +174,25 @@ export async function startProxy({
   ca?: CA;
   upstreamCA?: string[];
   tlsHandshakeTimeoutMs?: number;
+  dashboardPort?: number;
+  onDashboardRefused?: () => unknown;
 } = {}) {
   if (onFlow !== undefined && typeof onFlow !== 'function') throw new TypeError('onFlow는 함수여야 합니다.');
   if (onFlowStart !== undefined && typeof onFlowStart !== 'function') throw new TypeError('onFlowStart는 함수여야 합니다.');
+  if (onDashboardRefused !== undefined && typeof onDashboardRefused !== 'function') throw new TypeError('onDashboardRefused는 함수여야 합니다.');
+  // [UI-2] E-6(V18): 잘못된 포트를 조용히 무시하면 차단이 꺼진 채로 돈다. 프록시 포트와 같으면 막아 둔 origin-form이 다시 열린다(U17)
+  if (dashboardPort !== undefined && !(Number.isInteger(dashboardPort) && dashboardPort >= 1 && dashboardPort <= 65535)) throw new TypeError('dashboardPort는 1~65535 정수여야 합니다.');
+  if (dashboardPort !== undefined && dashboardPort === port) throw new TypeError('dashboardPort는 프록시 포트와 달라야 합니다.');
+  // 구독자의 예외·reject는 삼킨다(거절 응답과 프록시 동작에 번지지 않게 — emitFlow와 같은 이유)
+  const dashboardRefused = () => {
+    if (!onDashboardRefused) return;
+    try {
+      const r = onDashboardRefused() as PromiseLike<unknown> | undefined;
+      if (r && typeof r.then === 'function') r.then(undefined, () => {});
+    } catch {
+      /* 삼킨다 */
+    }
+  };
   if (port !== 0 && (await portAnswers(port))) {
     throw Object.assign(new Error(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다.`), { code: 'EADDRINUSE' });
   }
@@ -179,6 +211,17 @@ export async function startProxy({
   // 요청 하나의 검사·기록·중계. 평문 프록시 요청(route 없음)과 복호화한 터널 안 요청(route = CONNECT로 정한 목적지)이 같이 쓴다
   const handle = (req: http.IncomingMessage, res: http.ServerResponse, route?: MitmRoute) => {
     const target = req.url ?? '';
+    // [UI-2] E-3: 글자로 알아볼 수 있는 대시보드 대상(정규화한 URL — V1~V7)은 id·시작 알림·기록 전에 거절한다.
+    // 사용자의 브라우저가 프록시 예외 없이 대시보드를 열면 그 요청에 대시보드 토큰이 있다 — 기록하면 저장소에 토큰이 쌓인다(V21).
+    // 터널 안 요청(route)은 CONNECT 때 이미 검사했다
+    if (!route && dashboardPort !== undefined) {
+      const hp = plainHostPort(target);
+      if (hp && isDashboardLiteral(hp.host, hp.port, dashboardPort)) {
+        req.resume();
+        dashboardRefused();
+        return replyDashboard(res);
+      }
+    }
     if (route) route.requests++;
     const routeTarget = route && { scheme: 'https' as const, host: route.host, port: route.port, path: rawPath(target) };
 
@@ -261,6 +304,20 @@ export async function startProxy({
       headers.host = url.host; // 요청 URL의 호스트가 기준이다. 클라이언트가 보낸 Host는 무시한다 (C14, RFC 9112 3.2.2)
       upstream = http.request({
         host: url.hostname.replace(/^\[|\]$/g, ''), // IPv6 리터럴 [::1] → ::1
+        // [UI-2] E-3: 이름은 startProxy의 lookup으로 한 번만 해석하고, 그 주소로 대시보드 판정을 한 뒤 같은 주소로 연결한다.
+        // 전에는 Node가 연결할 때 따로 풀어서 주입 lookup이 쓰이지 않았고, 검사와 연결이 다른 주소를 볼 수 있었다(V10) [확인됨: scripts/probe/ui2-review/r4-plain-rebind.mjs].
+        // IP 표기는 Node가 lookup을 부르지 않는다(글자 판정이 앞에서 끝냈다)
+        lookup: ((hostname: string, opts: { all?: boolean }, cb: (...a: unknown[]) => void) => {
+          lookup(hostname).then(
+            (list) => {
+              if (!list.length) return cb(Object.assign(new Error('주소 없음'), { code: 'ENOTFOUND' }));
+              if (dashboardPort !== undefined && isLoopTarget(list.map((a) => a.address), port, dashboardPort)) return cb(Object.assign(new Error('대시보드 주소'), { code: DASHBOARD_LOOKUP }));
+              if (opts?.all) cb(null, list);
+              else cb(null, list[0].address, list[0].family);
+            },
+            (err) => cb(err),
+          );
+        }) as never,
         port,
         method: req.method,
         path: rawPath(target),
@@ -297,6 +354,12 @@ export async function startProxy({
       const timeout = err.code === TIMEOUT;
       if (res.headersSent) return fail({ by: 'upstream', code: timeout ? 'timeout' : 'aborted' }), res.destroy(); // 응답 도중에 끊기면, 잘린 응답을 완전한 것처럼 끝내지 않는다
       if (res.destroyed) return; // 클라이언트가 먼저 끊어서 우리가 목적지 요청을 멈춘 경우(아래 req 'error'). 원인은 클라이언트다
+      // [UI-2] 해석해 보니 대시보드 주소였다(이름 — V9). 시작 알림은 이미 나갔으므로 거절 기록이 남는다(E-3)
+      if (err.code === DASHBOARD_LOOKUP) {
+        fail({ by: 'proxy', code: 'rejected', status: 403 });
+        dashboardRefused();
+        return replyDashboard(res);
+      }
       // [PRX-3] 결정 10: 응답은 왔지만 HTTP로 해석할 수 없으면(Node의 HPE_* 오류) bad-response, 연결 자체가 안 되면 unreachable
       // [확인됨: scripts/probe/prx3-errcode.mjs — 깨진 상태 줄 HPE_INVALID_CONSTANT, 헤더 초과 HPE_HEADER_OVERFLOW, 닫힌 포트 ECONNREFUSED]
       // [TLS-4] 목적지 인증서를 믿을 수 없으면 중계하지 않고 터널 안에서 502(사용자 결정 4). 가짜 인증서로 실패를 가리지 않는다(Durumeric 외 2017)
@@ -361,11 +424,17 @@ export async function startProxy({
     // 'error'가 나는데, 처리기가 없으면 Node가 프로세스를 종료한다 [확인됨: PRX-1 실측]. 여기서는 정리만 하면 된다.
     socket.on('error', () => socket.destroy());
     if (tunnel || ca) {
+      const target = req.url ?? '';
+      const p = parseConnectTarget(target);
+      // [UI-2] E-3·E-4: 글자로 알아볼 수 있는 대시보드 대상은 id·시작 알림 전에, 200·인증서 발급 전에 거절한다(V13, V14, V21).
+      // 이름은 checkConnect가 해석한 뒤 거절한다(거절 기록이 남는다)
+      if (!('error' in p) && isDashboardLiteral(p.host, p.port, dashboardPort)) {
+        dashboardRefused();
+        return writeRefusal(socket, 403, DASHBOARD_REFUSAL, VIA_ID);
+      }
       const startedAt = Date.now();
       const t0 = performance.now();
       const id = nextFlowId++;
-      const target = req.url ?? '';
-      const p = parseConnectTarget(target);
       const head0 = () => ({
         method: 'CONNECT',
         url: target,
@@ -388,6 +457,8 @@ export async function startProxy({
           lookup,
           viaId: VIA_ID,
           rejected: rejected ? { ...rejected, message: rejected.message.replace(/^508 Loop Detected: /, '') } : undefined,
+          dashboardPort,
+          onDashboard: dashboardRefused,
           certs,
           inner,
           handshakeTimeoutMs: tlsHandshakeTimeoutMs,
@@ -410,6 +481,8 @@ export async function startProxy({
         connectTimeoutMs: upstreamTimeoutMs,
         viaId: VIA_ID,
         rejected: rejected ? { ...rejected, message: rejected.message.replace(/^508 Loop Detected: /, '') } : undefined,
+        dashboardPort,
+        onDashboard: dashboardRefused,
         track: (s) => (tunnels.add(s), s.once('close', () => tunnels.delete(s))),
         finish: (end) => {
           if (!onFlow) return;

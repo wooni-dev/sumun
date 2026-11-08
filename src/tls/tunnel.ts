@@ -40,7 +40,8 @@ export function parseConnectTarget(t: string): { host: string; port: number } | 
 }
 
 // 이 PC 자신을 뜻하는 주소인가: 127/8, ::1, 0.0.0.0, ::, IPv4-mapped(::ffff:127.0.0.1, ::ffff:7f00:1)
-function isSelfAddress(a: string): boolean {
+// [UI-2] 대시보드 차단(server.ts의 평문 검사)도 같은 판정을 쓴다
+export function isSelfAddress(a: string): boolean {
   const s = a.replace(/^\[|\]$/g, '').toLowerCase();
   if (net.isIPv4(s)) return s.startsWith('127.') || s === '0.0.0.0';
   if (!net.isIPv6(s)) return false;
@@ -55,15 +56,31 @@ export function isLoopTarget(addresses: string[], port: number, selfPort: number
   return port === selfPort && addresses.some(isSelfAddress);
 }
 
+// [UI-2] 대시보드 차단. 사례·결정: docs/ai/ui2-cases.md(E-1~E-9).
+// 프록시를 거친 대시보드 요청은 늘 127.0.0.1에서 오고(ui-cases E5), 불투명 터널 안에는 Via도 없다(V13) — 대시보드 혼자서는 구별하기 어렵다.
+// 그래서 프록시가 "이 PC 자신의 주소 + 대시보드 포트"로 가는 요청을 중계하지 않는다. 문구는 고정(입력을 넣지 않음 — V23)
+export const DASHBOARD_REFUSAL = 'sumun 대시보드는 프록시를 거치지 않고 직접 여세요. 브라우저(또는 Windows) 프록시 설정의 예외 목록에 127.0.0.1과 localhost를 넣으세요.';
+// 이름을 해석하지 않고 글자만으로 대시보드 대상인지 안다: IP 표기는 isSelfAddress, 이름은 localhost와 localhost.만(E-3).
+// 이 PC에서 a.localhost는 풀리지 않는다 [확인됨: scripts/probe/ui2-names.mjs]. 그 밖의 이름은 해석한 주소로 판정한다(checkConnect, server.ts의 평문 lookup)
+// 평문은 WHATWG URL이 정규화한 hostname을 넘긴다(127.1·0x7f000001 → 127.0.0.1, V2). CONNECT는 parseConnectTarget이 숫자 표기를 이미 거절한다
+export function isDashboardLiteral(host: string, port: number, dashboardPort: number | undefined): boolean {
+  if (dashboardPort === undefined || port !== dashboardPort) return false;
+  const bare = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (net.isIP(bare)) return isSelfAddress(bare);
+  return bare.replace(/\.$/, '') === 'localhost';
+}
+
 type End = Pick<Flow, 'error' | 'tunnel'>;
-const REASON: Record<number, string> = { 400: 'Bad Request', 502: 'Bad Gateway', 504: 'Gateway Timeout', 508: 'Loop Detected' };
+const REASON: Record<number, string> = { 400: 'Bad Request', 403: 'Forbidden', 502: 'Bad Gateway', 504: 'Gateway Timeout', 508: 'Loop Detected' };
 type Refusal = { status: number; message: string; error: NonNullable<Flow['error']> };
 
 // 고정 문구로 거절하고 연결을 닫는다(입력을 반영하지 않음 — PRX-1 B12). [TLS-4] 복호화(mitm.ts)도 같이 쓴다
 export function writeRefusal(socket: Socket, status: number, message: string, viaId: string) {
   const body = `${status} ${REASON[status]}: ${message}\n`;
+  // [UI-2] 403(대시보드 차단)에는 nosniff·no-store도 붙인다(평문 거절과 같게 — V23)
+  const extra = status === 403 ? 'x-content-type-options: nosniff\r\ncache-control: no-store\r\n' : '';
   if (!socket.destroyed) {
-    socket.end(`HTTP/1.1 ${status} ${REASON[status]}\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(body)}\r\nvia: ${viaId}\r\nconnection: close\r\n\r\n${body}`);
+    socket.end(`HTTP/1.1 ${status} ${REASON[status]}\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(body)}\r\nvia: ${viaId}\r\n${extra}connection: close\r\n\r\n${body}`);
   }
 }
 
@@ -75,6 +92,8 @@ export async function checkConnect(o: {
   selfPort: number;
   lookup: Lookup;
   rejected?: { status: number; message: string; code: 'rejected' | 'loop' };
+  dashboardPort?: number; // [UI-2] 있으면: 해석한 주소 중 하나라도 자기 주소이고 포트가 이것이면 403
+  onDashboard?: () => void; // [UI-2] 대시보드 차단으로 거절할 때 부른다(server.ts가 onDashboardRefused로 이어 준다)
 }): Promise<{ ok: { host: string; port: number; address: string; addresses: string[] } } | { refuse: Refusal } | { aborted: true }> {
   const no = (status: number, message: string, error: NonNullable<Flow['error']>) => ({ refuse: { status, message, error } });
   if (o.rejected) return no(o.rejected.status, o.rejected.message, { by: 'proxy', code: o.rejected.code, status: o.rejected.status });
@@ -97,6 +116,11 @@ export async function checkConnect(o: {
   }
   if (o.socket.destroyed) return { aborted: true };
   if (isLoopTarget(addresses, port, o.selfPort)) return no(508, '요청이 이 프록시로 되돌아옵니다.', { by: 'proxy', code: 'loop', status: 508 });
+  // [UI-2] 이름은 해석한 주소로 판정한다(V9). 주소 하나라도 — 터널은 다음 주소로 넘어가기 때문이다(V11, V12). 복호화에서는 200·인증서 발급 전이다(V14, V15)
+  if (o.dashboardPort !== undefined && isLoopTarget(addresses, port, o.dashboardPort)) {
+    o.onDashboard?.();
+    return no(403, DASHBOARD_REFUSAL, { by: 'proxy', code: 'rejected', status: 403 });
+  }
   return { ok: { host, port, address: addresses[0], addresses } }; // addresses = 검사한 주소 전부(루프 검사를 모두 통과)
 }
 
@@ -111,6 +135,8 @@ export async function openTunnel(o: {
   connectTimeoutMs: number;
   viaId: string;
   rejected?: { status: number; message: string; code: 'rejected' | 'loop' }; // 호출한 쪽이 먼저 거절한 경우(Host 중복 등)
+  dashboardPort?: number; // [UI-2] checkConnect에 그대로 넘어간다
+  onDashboard?: () => void;
   track: (s: Socket) => void; // 프록시를 닫을 때 남은 터널 소켓을 정리하기 위해
   finish: (end: End) => void;
 }) {

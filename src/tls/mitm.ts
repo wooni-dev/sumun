@@ -66,6 +66,8 @@ export async function openMitm(o: {
   lookup: Lookup;
   viaId: string;
   rejected?: { status: number; message: string; code: 'rejected' | 'loop' };
+  dashboardPort?: number; // [UI-2] checkConnect에 그대로 넘어간다 — 거절은 인증서 발급·200 전(V14)
+  onDashboard?: () => void;
   certs: CertCache;
   inner: Server;
   handshakeTimeoutMs: number; // [TLS-4b] 200 뒤 이 시간 안에 핸드셰이크가 끝나지 않으면 닫는다(사례 D4)
