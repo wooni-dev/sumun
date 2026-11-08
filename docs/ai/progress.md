@@ -10,7 +10,7 @@
     1. SEC-3 테스트 결함(forgeCert UTF-8) → "테스트 수정 허용"(추천). 아래 [SEC-3 테스트 수정] 계획.
     2. O47 → STO 큰 단위 보고서에서 결정(추천). `docs/method-feedback.md` 관찰 표에 적음.
     3. 예전 테스트 프로세스 4개(PID 5888·7664·8096·9296) → 종료(추천). `Stop-Process -Id 9296,8096,7664,5888` 뒤 `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` → 0개 [확인됨].
-  - 다음: STO 보고서 승인 → STO ✅ → UI 큰 단위.
+  - 다음: **STO 보고서(`docs/for-me/STO-report.md`) 사용자 답 대기.** 추천 순서 = STO-5(R2 진행 중은 바이트 상한으로 빼지 않음 + 모르는 필터 조건 오류) → STO ✅ → INFRA(O47~O52) → UI.
   - 주의: 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로. 커밋 메시지는 Write 도구로 파일에 쓰고 `git commit -F`, **`- 검증:`은 글자 그대로**(괄호를 콜론 앞에 넣지 않는다 — TLS-4c·SEC-3에서 두 번 ❌). 예상 중 결과를 모르는 것은 `[탐색]`, 나머지는 실측 줄에 일치/불일치(O46, VERDICT_RULE_SINCE 뒤 작업).
   - 저장소를 바꾸는 명령(`npm run ca -- install·uninstall`)은 Claude가 실행하지 않는다 — TTY 검사가 막고, 사용자가 직접 실행한다(SEC-3 결정 6). Claude는 `status`(읽기)만.
 - 범위 밖으로 남은 것(보고서 '자세히 볼 부분'): 테스트 코드가 .claude/state/에 쓸 수 있는 빈틈(INFRA-9 사례 12), PRX-2 F6이 %LOCALAPPDATA%\sumun을 보지 않음, OS 연결 대기열 232개, curl --ssl-no-revoke.
@@ -951,7 +951,9 @@
 ### [STO] 큰 단위 마무리
 - 1. `npm test` 전체(86342b9): tests 641 / pass 641 / fail 0 / todo 0 [확인됨].
 - 2. 감사(method-auditor, 입력은 노드 ID "STO"만): 하위 노드 5개 모두 ✅, big-unit-report·review ❌는 감사가 보고서보다 먼저라 정상. 경미 4건(진행 기록 정리, STO-1 범위 문구, 019f78e 검증 문구, 병합 뒤 기록 자리) → `docs/method-feedback.md` [STO] 절. 기록 정리 3건은 [AUDIT-7]에서 고침.
-- 3. 검토 에이전트(목표 문서와 코드만): 실행 중.
+- 3. 검토 에이전트(새 컨텍스트, 입력 = purpose-tree.md·src·test·package.json만, 금지 = progress·for-me·method-feedback·사례 문서·map·커밋 메시지): 일치 16, 불일치·위험 12(중간 R1~R4, 낮음 R5~R12), 목표 위반 없음. 스크립트 `scripts/probe/sto-final-review/`(이 기록 커밋에 함께). R1·R2·R3은 내가 다시 실행해 같은 결과 [확인됨: r4 74→423ms·동시 5개 2024ms, r3 7번·10번].
+- 4. 중간 확인 보고서 `docs/for-me/STO-report.md`: 결정 항목 15개(A 위험 1~4, B 낮은 위험 5~8, C 추천 진행 승인 9~13, D 다음 순서 14~15). **사용자 답 대기.**
+- 5. `node scripts/check-method.mjs --id STO`는 보고서 커밋 뒤 실행(아래 줄).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
