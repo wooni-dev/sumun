@@ -211,13 +211,19 @@ function startCli(args: string[]) {
   };
   return { st, exited, waitOut, stop: async () => (st.code === null && child.kill(), await exited) };
 }
+// [UI-2b 테스트 수정(사용자 허용)] 전에는 listen(0)이 준 임시 포트 P를 썼다. Windows는 임시 포트를 연속 번호로 주므로 P+1은
+// PC 전체에서 "다음에 배정될 번호"라, 병렬 실행에서 자식 프로세스가 뜨는 사이 다른 테스트가 가져가 흔들렸다(진행 기록 UI-2b).
+// 그래서 임시 포트 범위(49152~) 밖의 20000~39999에서 무작위로 고르고, P와 P+1이 127.0.0.1·::1 모두 비어 있는지 잠깐 listen해서 본다
+const canListen = (port: number, host: string) =>
+  new Promise<boolean>((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(false));
+    s.listen(port, host, () => s.close(() => resolve(true)));
+  });
 async function freePortPair() {
   for (;;) {
-    const s = net.createServer();
-    await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
-    const p = (s.address() as net.AddressInfo).port;
-    await new Promise<void>((r) => s.close(() => r()));
-    if (p < 65535) return p;
+    const p = 20000 + Math.floor(Math.random() * 20000);
+    if ((await canListen(p, '127.0.0.1')) && (await canListen(p, '::1')) && (await canListen(p + 1, '127.0.0.1')) && (await canListen(p + 1, '::1'))) return p;
   }
 }
 
