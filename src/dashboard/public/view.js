@@ -447,6 +447,13 @@ export function tunnelOutcome(r) {
 // [UI-6] G-5(K10~K13): 헤더 값·상태 문구는 Node가 바이트를 latin1 글자로 준다(한 글자 = 한 바이트). 그 바이트가 올바른 UTF-8이면 풀어 보인다.
 //   모든 글자가 U+00FF 이하이고 U+0080 이상이 하나라도 있을 때만, 엄격하게(fatal) 푼다. 실패하면 null — 화면은 지금 표시 그대로(K11).
 //   hex는 원래 바이트(글자 코드 그대로 — TextEncoder로 다시 인코딩하지 않는다, K10). 진짜 latin1 값도 바뀔 수 있으므로 화면은 표시와 원본을 함께 보인다(K12)
+// [UI-7] 호스트 필터 0건 안내(UI 보고서 결정 23). 필터는 같은 도메인·하위 도메인만 맞는다(STO filter.ts) — 이름 일부로는 0건이 된다.
+//   문구는 고정이다: 입력값을 넣지 않는다. host = 적용된 조건의 호스트, count = 결과 건수
+export const EMPTY_FILTER_HINT = '호스트는 도메인 전체로 찾습니다. 예: example.com을 넣으면 www.example.com 같은 하위 도메인도 함께 나옵니다. 이름 일부(example)로는 찾지 않습니다.';
+export function emptyFilterHint({ host, count } = {}) {
+  return String(host ?? '').trim() !== '' && count === 0 ? EMPTY_FILTER_HINT : '';
+}
+
 export function utf8View(s) {
   const str = String(s ?? '');
   if (!str) return null;

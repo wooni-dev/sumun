@@ -8,7 +8,7 @@
 //   - 오류 문구는 고정이다. 입력이나 기록 내용을 문구에 넣지 않는다(U30)
 //   - 본문은 텍스트·16진. [UI-5b] 래스터 이미지는 버튼으로 canvas 미리보기, 한 층 gzip·deflate는 10MiB까지 풀기, 원본 저장(docs/ai/ui5b-cases.md B-1~B-7)
 //   [UI-6] 토큰은 읽자마자 주소에서 지우고 이 페이지의 메모리에만 둔다(사용자 결정 — 새로고침하면 다시 터미널 주소로). docs/ai/ui6-cases.md G-1~G-7
-import { tokenFromHash, showHidden, hostLabel, displayUrl, clip, hexDump, bodyText, buildQuery, createSSEParser, createModel, previewDecision, contentEncodings, decompressPlan, inflate, downloadName, createRefresher, tunnelOutcome, utf8View } from './view.js';
+import { tokenFromHash, showHidden, hostLabel, displayUrl, clip, hexDump, bodyText, buildQuery, createSSEParser, createModel, previewDecision, contentEncodings, decompressPlan, inflate, downloadName, createRefresher, tunnelOutcome, utf8View, emptyFilterHint } from './view.js';
 
 const LIMITS = { domRows: 1000, url: 300, value: 4000, title: 8000, text: 256 * 1024, hex: 64 * 1024, pages: 20, idleMs: 45_000, pixels: 50_000_000, inflate: 10 * 1024 * 1024 };
 const token = tokenFromHash(location.hash);
@@ -183,7 +183,9 @@ function render() {
   }
   ui.tbody.replaceChildren(frag);
   ui.count.textContent = state.query ? `필터 결과 ${all.length}건` : `${all.length}건`;
-  ui.more.textContent = all.length > rows.length ? `최근 ${rows.length}건만 보입니다(나머지 ${all.length - rows.length}건은 필터로 좁혀 보세요).` : '';
+  // [UI-7] 호스트는 화면 칸이 아니라 적용된 조건에서 읽는다(칸만 바꾸고 적용하지 않은 경우와 섞이지 않게)
+  const hint = state.query ? emptyFilterHint({ host: new URLSearchParams(state.query).get('host'), count: all.length }) : '';
+  ui.more.textContent = all.length > rows.length ? `최근 ${rows.length}건만 보입니다(나머지 ${all.length - rows.length}건은 필터로 좁혀 보세요).` : hint;
 }
 
 // 목록 전체(또는 필터 결과)를 쪽마다 받는다(한 번에 500건 — UI-3)
