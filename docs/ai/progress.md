@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-4b] 완료(main에 병합). TLS의 작은 단위가 모두 끝남 → 다음: TLS 큰 단위 끝 절차(전체 테스트 → method-auditor → 목표 문서만 보는 검토 → TLS-report.md → check-method --id TLS). TLS는 "🔨 확인 대기"(O37).
+- 작업: TLS 큰 단위 끝 절차 완료(AUDIT-6) — **`docs/for-me/TLS-report.md` 사용자 확인 대기**(결정 항목 18건, 방식 보정 O39~O46). 승인되면: 결정 1·2 → TLS-4c(복호화 터널 안 유휴·느린 헤더 연결, 인증서 오류 분류) → TLS ✅ → INFRA-10(O39~O46 반영) → SEC-3. TLS는 "🔨 확인 대기"(O37).
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.

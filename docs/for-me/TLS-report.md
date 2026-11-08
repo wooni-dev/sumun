@@ -78,4 +78,12 @@
 2. 검토 스크립트: `node scripts/review/tls/review-mitm.ts` → `합계 16개, 실패 1개`(실패 = "핸드셰이크 뒤 무요청 연결이 10초 안에 닫힘(5개) 닫힘 0/5"). OK에는 "SNI 달라도 인증서는 CONNECT 이름", "Host 바꾸기 → 421", "NODE_TLS_REJECT_UNAUTHORIZED=0이어도 검증", "LOCALAPPDATA 없으면 거부" 등.
 3. 결함 1 재현: `node scripts/review/tls/review-idle.ts 6` → `{"afterHandshake":null,"noClientHello":619,"plainIdle":762,"partialHeaders":null}`(null = 6초 안에 안 닫힘)
 4. 실제 curl: `node scripts/probe/tls4-curl.mjs` → `--ssl-no-revoke`로 example.com `HTTP 200`, 믿을 수 없는 로컬 목적지 `502 … 인증서를 믿을 수 없습니다.` / `node scripts/probe/tls4b-curl.mjs` → localhost 터널 `[200]`
-5. 기계 검사: `node scripts/check-method.mjs --id TLS` → 이 보고서 커밋 뒤 결과를 아래에 붙인다.
+5. 기계 검사: `node scripts/check-method.mjs --id TLS`(49e4264 뒤) →
+   | 규칙 | 결과 | 근거 |
+   |---|---|---|
+   | sub-nodes | ❌ | TLS-1b message-format, TLS-2 plan-first·test-first, TLS-2b·TLS-3·TLS-4·TLS-4b test-unchanged(결정 항목 17, O39·O40·O41) |
+   | big-unit-test | ✅ | TLS-T 있음 |
+   | big-unit-report | ✅ | 이 보고서 |
+   | big-unit-review | ✅ | 검토 에이전트 확인 결과 있음 |
+   | big-unit-todo | ✅ | 마지막 npm test: 전체 실행, 실패 0, TLS 대기 0 |
+   - 처음에는 이 보고서를 `[TLS]` 이름으로 커밋해 검사기가 TLS를 작은 단위로도 판정했다(계획 커밋 없음 등). PRX 때처럼 `[AUDIT-6]` 이름으로 다시 커밋했다(아직 아무 데도 참조되지 않은 두 커밋, 내용 같음).
