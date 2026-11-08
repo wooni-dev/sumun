@@ -13,6 +13,11 @@ export const msgOf = (title) => `${title}\n\n- 왜: 이유\n- 검증: npm test �
 export function makeBranchRepo({ branch = true, on } = {}) {
   const fx = makeRepo();
   fs.writeFileSync(path.join(fx.repo, '.claude', 'commit-rule.json'), JSON.stringify(branch ? { enabled: true, branch: true } : { enabled: true }) + '\n');
+  // 실제 저장소처럼 표시 파일은 추적하고 상태 폴더는 무시한다 — fx.commit의 git add -A가 이 둘을 다른 브랜치 커밋에 넣어
+  // checkout으로 지워지지 않게(INFRA-13 멈춤 기록, scripts/probe/infra13-reflog.mjs)
+  fs.appendFileSync(path.join(fx.repo, '.git', 'info', 'exclude'), '\n.claude/state/\n');
+  fx.git('add', '.claude/commit-rule.json');
+  fx.git('commit', '-q', '-m', '[X-0] 표시 파일\n\n- 왜: a\n- 검증: b');
   if (on) fx.git('checkout', '-q', '-b', on);
   // 테스트 수정 허용 상태(on-prompt.mjs가 쓰는 파일과 같은 모양)
   fx.unlock = (on2 = true) => fs.writeFileSync(path.join(fx.repo, '.claude', 'state', 'tests-unlocked.json'), JSON.stringify({ until: on2 ? Date.now() + 600_000 : 0 }));
