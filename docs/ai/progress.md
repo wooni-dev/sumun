@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [STO-1] 저장·요약·상세·알림(브랜치 feat/STO-1). STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
+- 작업: [STO-1] 완료(브랜치 feat/STO-1 → 병합). STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -848,6 +848,14 @@
   - E139: 새 동작 테스트는 stub(빈 함수만 export한 `src/store/store.ts`)에서 모두 assertion 실패, 오류 0(O2). 판정: 실패 수 = 테스트 수, 오류 0.
   - E140: 구현 뒤 `npm test` 실패 0, 출력에 "큰 단위 대기(todo) STO: 2개"(attach.ts가 아직 없음). 판정: 둘 다면 일치.
   - E141 [탐색]: 1MiB 본문 기록 1,000건에서 `JSON.stringify(store.list())`의 길이 — 요약만 나가는지 크기로 기록한다(`scripts/probe/sto1-summary-size.mjs`).
+- 실측 (명령 원문):
+  - E139 일치(6c7a771): stub으로 `npm run test:red -- test/sto/STO-1.test.ts` → 18개 모두 assertion 실패, 오류 0. 첫 실행은 오류 5개와 tests 16으로 보여(빈 목록 [0] 읽기, C5가 출력을 가로채는 동안 await해서 실행기 결과 줄까지 가로챔) 커밋 전에 테스트를 고쳤다(커밋 메시지). 기대값 변경 없음.
+  - E140 일치(67d5778): `npm test` → tests 611 / pass 609 / fail 0 / todo 2, "큰 단위 대기(todo) STO: 2개, 그중 실패 2개".
+  - E141 [탐색] 기록(67d5778): `node scripts/probe/sto1-summary-size.mjs` → 목록 JSON 318,680자, 건당 319자, 2.6ms, 본문 글자 포함 false.
+- 실제 클라이언트 실측(O31): 이 단위는 프록시에 연결하지 않아 실제 클라이언트가 닿지 않는다 → STO-4에서 curl·브라우저로.
+- hook 기록(O25): ① 커밋 메시지를 printf로 셸에서 만들다 `>`와 테스트 경로가 겹쳐 막힘 ② `npm run test:red -- test/… > 파일`, `| tee 파일`도 막힘 — 모두 의도한 보수적 동작(O45). Write 도구로 메시지, 출력은 파이프로 grep만.
+- 계획과 달라진 점: 새 `scripts/probe/sto1-summary-size.mjs`(계획에 이름만 있던 E141 스크립트). 회귀 파일 없음(회귀 assertion만 있는 테스트 없음).
+- 범위 밖 관찰: 없음.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
