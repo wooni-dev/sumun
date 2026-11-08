@@ -3,9 +3,9 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-4c] 복호화 터널 안 헤더 제한·인증서 분류 (feat/TLS-4c). 아래 "[TLS-4c] 계획". TLS 보고서 승인됨(2026-11-08, 보고서 머리).
+- 작업: [TLS-4c] 완료(feat/TLS-4c, 병합 대기). **TLS 큰 단위 ✅**(보고서 승인 2026-11-08). 다음: INFRA-10(O39~O46 반영) → SEC-3.
   - 세션 시작 대조(2026-11-08): main = 00248ae, `npm test` 523/523, 실패 0, 대기 0 [확인됨] — 기록과 일치.
-  - 순서: ① TLS-4c(결정 1·2: 복호화 터널 안 유휴·느린 헤더 연결이 안 닫힘 — `scripts/review/tls/review-idle.ts`로 재현, 인증서 오류 분류를 목록 밖 코드까지) → ② TLS ✅(O37) → ③ INFRA-10(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
+  - 순서: ~~① TLS-4c~~ 완료 → ~~② TLS ✅(O37)~~ 완료 → ③ INFRA-10(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
   - 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로(`[TLS]`로 하면 check-method가 작은 단위로 판정 — d642a81 보고서 실행 증거 5).
   - 커밋 메시지는 Write 도구로 파일에 쓰고 `git commit -F`(hook이 리다이렉트+테스트 경로를 막음, 의도한 보수적 동작 — O45 후보).
 - 범위 밖으로 남은 것(보고서 '자세히 볼 부분'): 테스트 코드가 .claude/state/에 쓸 수 있는 빈틈(INFRA-9 사례 12), PRX-2 F6이 %LOCALAPPDATA%\sumun을 보지 않음, OS 연결 대기열 232개, curl --ssl-no-revoke.
@@ -680,6 +680,15 @@
   - E114: 새 동작 테스트는 지금 구현(main 00248ae)에서 모두 assertion 실패, 오류 0. 회귀 테스트는 모두 통과. 판정: 실패 수 = 새 동작 테스트 수, 오류 0, 회귀 실패 0.
   - E115: 구현 뒤 `npm test` 실패 0, 큰 단위 대기 0. 판정: 둘 다.
   - E116 실제 클라이언트(O31): `openssl s_client -proxy 127.0.0.1:<포트>`로 복호화 터널에 핸드셰이크만 하고 기다리면, h=2000인 프록시가 연결 뒤 3500ms 안에 닫고 클라이언트 출력에 `408`이 보인다. 기존 curl 실측(`scripts/probe/tls4-curl.mjs`)은 그대로 200·502. 판정: 둘 다면 일치.
+- 실측(b0f9429, `node scripts/probe/tls4c-cause.mjs`, `node scripts/probe/tls4c-classify.mjs`): **E110 일치**(검사 안 켬 → null, 'listening' emit → 528·526ms), **E111 일치**(bytes 0), **E112 불일치**(h=1이어도 바로 하는 핸드셰이크는 성공 — 이 PC의 핸드셰이크가 첫 검사 50ms보다 빠름). 추가 관찰: ClientHello를 300ms 늦추면 h=1에서 핸드셰이크 전에 61ms에 끊기고, h=1000에서 연결 시작부터 1014ms에 닫힘 → 시계는 넘겨받은 때부터 센다 → 구현에서 핸드셰이크 뒤에 넘기기로. **E113 일치**(13사례).
+- E114 일치(15d958f): 새 동작 13개 모두 assertion 실패, 오류 0. 회귀 15/15. 첫 회귀 실행에서 K7이 한 번 흔들림 → drip이 응답을 받으면 멈추게(기대값 그대로, 커밋 메시지).
+- 구현 중 결함(범위 안, 내가 만든 것): 핸드셰이크 뒤에 넘기자 TLS-4 D3(클라이언트가 우리 인증서 거부, TLS 1.3)이 "CONNECT 기록 없음"으로 실패. 첫 가설("핸드셰이크 전에 아무도 읽지 않아 끝을 처리 못 함")로 이른 data 처리기를 달았지만 여전히 실패 → 버림. 디버그 [확인됨: 작업 폴더 밖 임시 스크립트로 실행, 결과만 기록]: `new TLSSocket(http 'connect' 소켓, { isServer })`에 처리기 none·data·resume·raw resume·http 서버 넘김을 달아 보면 모두 'end'는 오지만 'close'는 http 서버에 넘긴 경우만(12ms) — CONNECT 소켓은 반쯤 닫힌 채 남는다. 같은 비교를 net 서버 소켓으로 하면 모두 close. → 핸드셰이크 전 'end'면 닫는다(e307891). 기존 테스트가 이미 잡은 결함이라 O26의 기록·재현 테스트 순서는 쓰지 않았다(재현 테스트 = TLS-4 D3).
+  - 디버그 스크립트를 저장소에 두지 않은 것은 O19와 어긋난다 [추측: 경미 — 결론은 기존 테스트 D3와 이 기록으로 재현 가능]. 감사에 올린다.
+- E115 일치: `npm test` → 551 / 551 / 실패 0 / 대기 0.
+- E116 일치(2fa5e0c): `node scripts/probe/tls4c-openssl.mjs` → 핸드셰이크 383ms, 종료 2967ms, 408 받음 true, 기록 client timeout. 첫 실행(stdin 열어 둠)은 openssl이 끝나지 않음 → stdin 닫고 -ign_eof. `node scripts/probe/tls4-curl.mjs` → --ssl-no-revoke로 example.com 200, 로컬 불신 502(그대로).
+- TLS 보고서 검토 스크립트 재실행: `node scripts/review/tls/review-idle.ts 6` → `{"afterHandshake":764,"noClientHello":677,"plainIdle":761,"partialHeaders":764}`(전: afterHandshake·partialHeaders null), `node scripts/review/tls/review-mitm.ts` → "합계 16개, 실패 0개"(전: 1개).
+- 계획과 달라진 점: 범위의 "필요하면 새 도우미 `_tls4c.ts`"는 만들었다. 범위에 없던 `scripts/review/`는 바꾸지 않았다(재실행만). 사례 배정 변경 없음. TLS·TLS-T를 ✅로(보고서 승인, 이 문서 커밋).
+- [TLS-4c] 완료: 5fd1dab..(이 문서 커밋). 다음: 병합 → `check-method --id TLS-4c` → INFRA-10.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
