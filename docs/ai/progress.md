@@ -1179,6 +1179,29 @@
 - [UI-1] 완료: f84e476..5f818f3, 병합 36c2a1c. `node scripts/check-method.mjs --id UI-1`(36c2a1c) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). predictions-measured 근거에 E172가 나오지 않는다 — 계획에서 E172 줄이 결함 기록 블록 아래로 밀려 예상 목록으로 읽히지 않은 것으로 보인다 [추측: 코드 안 봄]. 실측 기록은 있다(E172 일치).
   - E172 실측(O31, 실제 클라이언트): `npm start -- --port 18080`을 띄우고 시작 줄의 주소를 확인한 뒤 curl로 `http://127.0.0.1:18081/` → 200 HTML, `/api/ping`(토큰 없음) → 401, 토큰 → 200, `-H "Origin: http://evil.example"` → 403, `-H "Host: evil.example:18081"` → 403. 판정: 다섯 다 이와 같으면 일치.
 
+### [UI-2] 계획
+- 근거: 사용자 지시(2026-11-08) "이어서 해". 상위 배정 `docs/ai/ui-cases.md` "UI-2"(U15·U16·U17, D-5). 차단 규칙이므로 별도 컨텍스트의 검토 에이전트에게 UI-2용 우회 사례를 새로 받았다(O10) → `docs/ai/ui2-cases.md` V1~V23, G1~G10. 해결안은 알려 주지 않았다.
+- 미확인 항목(O13): 변화 없음(ai-research Read 규칙·Ctrl+C·예약 포트 — 모두 세션 밖 조건 필요). 이월: UI-1 병합 뒤 merge-record ✅ [확인됨: e1f023c 기록 커밋].
+- 지켜야 할 기존 테스트 [확인됨: 파일 존재]: `test/ui/UI-1*.test.ts`(시작 줄 한 줄, 기본 포트가 차 있으면 다른 포트), `test/prx/PRX-4.test.ts`(시작 실패 때 stdout 없음), `test/tls/*`(주입 lookup — CONNECT에 씀), `test/ui/UI-T.test.ts`(대기, 보호 테스트가 `startProxy({ dashboardPort })`와 "프록시를 거친 대시보드 요청은 기록이 늘지 않음"을 본다).
+- 설계 [추측] — `docs/ai/ui2-cases.md` "UI-2 설계 결정" E-1~E-9:
+  - `src/tls/tunnel.ts`: `isSelfAddress`를 내보내고, `isDashboardLiteral(host, port, dashboardPort)`(IP 표기면 isSelfAddress, 이름이면 `localhost`·`localhost.`만) 추가. `checkConnect({ …, dashboardPort })`가 해석한 주소 중 하나라도 자기 주소이고 포트가 대시보드 포트면 403. `writeRefusal`의 REASON에 403. `openTunnel`·`openMitm`은 dashboardPort를 넘기기만 한다.
+  - `src/proxy/server.ts` `startProxy({ dashboardPort, onDashboardRefused })`: 평문은 `handle()` 맨 앞(id·시작 알림 전)에서 정규화한 URL로 글자 판정 → 403(기록 없음). 이름은 `http.request`의 `lookup`을 `startProxy`의 `lookup`(한 번 해석)으로 바꾸고 그 안에서 판정 → 403 거절 기록. CONNECT는 `server.on('connect')` 맨 앞에서 글자 판정(기록 없음), 이름은 checkConnect. 거절마다 `onDashboardRefused()`(예외는 삼킴). 응답은 고정 문구 + `x-content-type-options: nosniff`·`cache-control: no-store`.
+  - `src/index.ts`: 대시보드를 먼저 열고(대체 포트가 프록시 포트와 같으면 다시 고름), 프록시에 실제 대시보드 포트를 넘긴다. 첫 거절 때 안내 줄 한 번.
+- 한 줄 보고: 목표 = 프록시가 이 PC의 대시보드 포트로 가는 평문·CONNECT(터널·복호화)를 중계하지 않고 우회 안내로 거부한다 / 범위 =
+  - `src/tls/tunnel.ts` `isSelfAddress()`(내보내기), 새 `isDashboardLiteral()`, `checkConnect()`(dashboardPort), `writeRefusal()`(403), `openTunnel()`(전달)
+  - `src/tls/mitm.ts` `openMitm()`(dashboardPort 전달)
+  - `src/proxy/server.ts` `startProxy()`(옵션 2개·검사), `handle()`(글자 판정·lookup), 새 `replyDashboard()`
+  - `src/index.ts`(대시보드 먼저, dashboardPort·안내 줄)
+  - 새 `test/ui/UI-2.test.ts`(새 동작), 새 `test/ui/UI-2-regression.test.ts`(구현 전에도 통과해야 정상 — dashboardPort 없을 때·다른 포트·자기 포트 508, O9)
+  - 새 `scripts/probe/ui2-review/r1~r8`(에이전트 실험, r5의 CA 위치만 바꿈), 새 `scripts/probe/ui2-names.mjs`
+  - `docs/ai/ui2-cases.md`(새), `docs/ai/map.md`, `docs/for-me/UI-2.md`, `docs/ai/progress.md`, `docs/ai/purpose-tree.md`
+  - 하지 않을 것 = V19·V20(사슬·다른 실행 — X1 갈래), 기존 루프 검사(508)의 판정 변경, 대시보드 서버(UI-1) 변경, 조회 API·화면(UI-3~5), 기존 테스트 수정
+- 예상 [추측] (판정 기준 포함):
+  - E174: 지금 코드(새 모듈이 없어 stub 없음 — `dashboardPort`·`onDashboardRefused`는 지금 무시됨)에서 `npm run test:red -- test/ui/UI-2.test.ts` → 새 동작 테스트가 모두 실패, 유형은 assertion 실패, 오류 0. `npm test -- test/ui/UI-2-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E175: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, "큰 단위 대기(todo) UI: 2개"(app.js가 없어 그대로 대기), 5분 안. 판정: 넷 다면 일치.
+  - E176: 평문 경로를 주입 `lookup`으로 바꿔도 기존 TLS 테스트(주입 lookup을 쓰는 7개 파일)는 바뀐 것 없이 통과한다. 판정: E175 실행에서 `test/tls` 실패 0이면 일치.
+  - E177(O31, 실제 클라이언트): `npm.cmd start -- --port 18080` 뒤 `curl.exe -x http://127.0.0.1:18080 http://127.0.0.1:18081/` → 403과 안내 문구, `curl.exe -x http://127.0.0.1:18080 -p http://localhost:18081/`(CONNECT) → curl이 CONNECT 403으로 실패, `curl.exe http://127.0.0.1:18081/`(직접) → 200, 프록시 출력에 안내 줄이 정확히 1개(요약 줄 0개). `--decrypt`로 다시 띄워 `curl.exe -x http://127.0.0.1:18080 https://127.0.0.1:18081/` → CONNECT 403. 판정: 다섯 다면 일치.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
