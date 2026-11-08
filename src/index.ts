@@ -1,11 +1,13 @@
 // [PRX-4] 실행 진입점: npm start  /  npm start -- --port 9000  /  node src/index.ts --port 9000
 //
 // 브라우저(또는 Windows) 프록시를 127.0.0.1:<포트>로 설정하고 쓴다. 바인딩 주소는 startProxy가 127.0.0.1로 고정한다.
-// 출력: 시작 줄 1개 + 요청마다 요약 한 줄(src/cli.ts). 기록을 파일로 저장하지 않는다(PRX-2 사용자 결정: 메모리만).
+// 출력: 시작 줄 1개 + 요청마다 요약 한 줄(src/cli.ts). 기록은 메모리 저장소(src/store/)에만 두고 파일로 저장하지 않는다(PRX-2 사용자 결정: 메모리만).
 // 주의: `npm start --port 9000`처럼 `--` 없이 쓰면 npm이 --port를 자기 설정으로 가져가서 이 프로그램에 오지 않는다(prx4-cases L9).
 import { startProxy } from './proxy/server.ts';
 import { loadOrCreateCA, defaultCADir, type CA } from './ca/ca.ts';
 import { parseArgs, formatSummary, safeText } from './cli.ts';
+import { createStore } from './store/store.ts';
+import { attachStore } from './store/attach.ts';
 
 const fatal = (message: string): never => {
   process.stderr.write(`sumun: ${message}\n`);
@@ -33,10 +35,25 @@ if (decrypt) {
   }
 }
 
+// [STO-4] 기록을 메모리 저장소에 모은다(기본 상한 256MiB·10,000건 — STO-2). 디스크에 쓰지 않고, 종료할 때도 출력·저장하지 않는다(F3).
+// 저장소는 다음 단계(UI)의 대시보드가 쓴다. 지금은 바깥에서 볼 수 없다
+const store = createStore();
+const hooks = attachStore(store);
+
 let proxy: Awaited<ReturnType<typeof startProxy>>;
 try {
   // [TLS-1] tunnel: true — HTTPS(CONNECT)를 복호화 없이 통과시킨다. 요약 줄에는 대상과 바이트 수만 나온다
-  proxy = await startProxy({ port, tunnel: true, ca, onFlow: (flow) => void process.stdout.write(`${formatSummary(flow)}\n`) });
+  // 요약 줄을 먼저 찍고 저장한다(저장에서 오류가 나도 요약 줄은 남는다)
+  proxy = await startProxy({
+    port,
+    tunnel: true,
+    ca,
+    onFlowStart: hooks.onFlowStart,
+    onFlow: (flow) => {
+      process.stdout.write(`${formatSummary(flow)}\n`);
+      hooks.onFlow(flow);
+    },
+  });
 } catch (err) {
   // M1, M4: 시작 실패는 코드별 고정 문구. 스택 트레이스를 찍지 않는다
   const code = (err as NodeJS.ErrnoException)?.code;
