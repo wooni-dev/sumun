@@ -14,7 +14,9 @@ export function tokenFromHash(hash) {
 //   C0 제어(줄바꿈·탭 포함)·DEL·C1 제어, 소프트 하이픈, 아랍 글자 표시, zero-width·방향 표시(200B~200F), 방향 덮어쓰기(202A~202E),
 //   단어 잇기·보이지 않는 연산자(2060~2064), 방향 격리(2066~2069), BOM(FEFF)
 // keepLines: 본문처럼 여러 줄인 칸에서는 줄바꿈·탭·CR을 그대로 둔다(그 밖은 똑같이 보인다)
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f­؜​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
+//   [UI-6] 넓힘(docs/ai/ui6-cases.md K8, G-5): 결합 문자 잇기(034F), 한글 채움(115F·1160·3164·FFA0), 몽골 모음 구분(180E), 줄·문단 구분(2028·2029),
+//   옛 형식 문자(206A~206F), 행간 주석(FFF9~FFFB), 태그 문자(E0000~E007F — ASCII 밀반입). 이모지 표시 선택자(FE0E·FE0F)는 넣지 않는다(이모지마다 표시가 붙음)
+const HIDDEN = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\u3164\ufeff\uffa0\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu;
 const mark = (c) => `⟨U+${c.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}⟩`;
 export function showHidden(s, { keepLines = false } = {}) {
   return String(s ?? '').replace(HIDDEN, (c) => (keepLines && (c === '\n' || c === '\r' || c === '\t') ? c : mark(c)));
@@ -381,4 +383,87 @@ export async function inflate(bytes, format, max = 10 * 1024 * 1024) {
 // B-6, P13·P15: 저장 이름은 기록과 무관하게 고정. 확장자 .bin(기록 형식에 따라 .htm·.svg가 붙지 않게)
 export function downloadName(id, part) {
   return Number.isSafeInteger(id) && id >= 0 && (part === 'request' || part === 'response') ? `sumun-${id}-${part}.bin` : 'sumun-body.bin';
+}
+
+// [UI-6] G-1(K1~K7): 필터 다시 받기. 요청이 오면 waitMs 뒤 실행하되, 요청이 계속 와도 첫 요청부터 maxWaitMs 안에는 실행한다(끝쪽 실행 — 마지막 요청도 반영).
+//   실행은 한 번에 하나(늦게 끝난 옛 결과가 새 결과를 덮지 않고, 큰 조회가 겹쳐 프록시를 느리게 하지 않음). 실행 중 온 요청은 끝난 뒤 한 번만 더.
+//   task가 throw·reject해도 다음 요청을 받는다. now()는 기다리지 않고 바로(필터 적용 버튼). 숨은 탭에서는 브라우저가 타이머를 늦춘다(K7).
+export function createRefresher(task, { waitMs = 300, maxWaitMs = 1000, timers = globalThis } = {}) {
+  let timer = 0;
+  let firstAt = null;
+  let running = false;
+  let dirty = false;
+  const now = () => (typeof timers.now === 'function' ? timers.now() : Date.now());
+  const cancel = () => {
+    if (timer) timers.clearTimeout(timer);
+    timer = 0;
+    firstAt = null;
+  };
+  async function run() {
+    running = true;
+    try {
+      await task();
+    } catch {
+      // 실패한 조회는 다음 요청에서 다시 한다(K5)
+    } finally {
+      running = false;
+      if (dirty) (dirty = false), request();
+    }
+  }
+  function request() {
+    if (running) return void (dirty = true);
+    const t = now();
+    if (firstAt === null) firstAt = t;
+    if (timer) timers.clearTimeout(timer);
+    const delay = Math.max(0, Math.min(waitMs, firstAt + maxWaitMs - t));
+    timer = timers.setTimeout(() => (cancel(), run()), delay);
+  }
+  return {
+    request,
+    now() {
+      cancel();
+      if (running) return void (dirty = true);
+      run();
+    },
+    cancel,
+  };
+}
+
+// [UI-6] G-2(K31~K34): 복호화하지 않은 터널의 끝을 사람이 오해하지 않게. 기록은 바꾸지 않고 표시만 정한다.
+//   closed = 위·아래로 모두 데이터가 오간 뒤 브라우저(client)가 연결을 끊음(RST). "정상"이라고는 하지 않는다 — 짧은 오류 응답 뒤 끊김일 수도 있다(K33)
+//   failed = 그 밖의 오류(목적지가 끊음, 목적지에서 받은 것 없음, 시간 초과 …) / ok = 오류 없이 끝남 / null = 터널 기록이 아님(평문·복호화 CONNECT)
+export function tunnelOutcome(r) {
+  if (!r || typeof r !== 'object' || !r.tunnel || typeof r.tunnel !== 'object') return null;
+  const up = Number(r.tunnel.bytesUp) || 0;
+  const down = Number(r.tunnel.bytesDown) || 0;
+  const e = r.error;
+  if (!e) return { kind: 'ok', text: `끝남(↑${up} ↓${down} 바이트)` };
+  const original = `${e.code} (${e.by})`;
+  if (e.by === 'client' && e.code === 'aborted' && up > 0 && down > 0)
+    return { kind: 'closed', text: `끝남 — 데이터가 오간 뒤 브라우저가 연결을 닫았습니다(↑${up} ↓${down} 바이트, 원래 기록: ${original})` };
+  return { kind: 'failed', text: `${original}${down === 0 ? ' — 목적지에서 받은 데이터가 없습니다' : ''}` };
+}
+
+// [UI-6] G-5(K10~K13): 헤더 값·상태 문구는 Node가 바이트를 latin1 글자로 준다(한 글자 = 한 바이트). 그 바이트가 올바른 UTF-8이면 풀어 보인다.
+//   모든 글자가 U+00FF 이하이고 U+0080 이상이 하나라도 있을 때만, 엄격하게(fatal) 푼다. 실패하면 null — 화면은 지금 표시 그대로(K11).
+//   hex는 원래 바이트(글자 코드 그대로 — TextEncoder로 다시 인코딩하지 않는다, K10). 진짜 latin1 값도 바뀔 수 있으므로 화면은 표시와 원본을 함께 보인다(K12)
+export function utf8View(s) {
+  const str = String(s ?? '');
+  if (!str) return null;
+  const bytes = new Uint8Array(str.length);
+  let high = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    if (c > 0xff) return null;
+    if (c >= 0x80) high = true;
+    bytes[i] = c;
+  }
+  if (!high) return null;
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+  return { text, hex: Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' ') };
 }

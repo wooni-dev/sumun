@@ -59,7 +59,10 @@ export function isLoopTarget(addresses: string[], port: number, selfPort: number
 // [UI-2] 대시보드 차단. 사례·결정: docs/ai/ui2-cases.md(E-1~E-9).
 // 프록시를 거친 대시보드 요청은 늘 127.0.0.1에서 오고(ui-cases E5), 불투명 터널 안에는 Via도 없다(V13) — 대시보드 혼자서는 구별하기 어렵다.
 // 그래서 프록시가 "이 PC 자신의 주소 + 대시보드 포트"로 가는 요청을 중계하지 않는다. 문구는 고정(입력을 넣지 않음 — V23)
-export const DASHBOARD_REFUSAL = 'sumun 대시보드는 프록시를 거치지 않고 직접 여세요. 브라우저(또는 Windows) 프록시 설정의 예외 목록에 127.0.0.1과 localhost를 넣으세요.';
+// [UI-6] G-7(docs/ai/ui6-cases.md K25~K30): Chrome·Edge는 --proxy-server만 주면 loopback을 원래 프록시로 보내지 않는다 [확인됨: UI 보고서 실측].
+//   <-loopback>을 준 사람에게는 대시보드 예외를 그 뒤에 둬야 한다(앞에 두면 효과 없음 — K26). 고정 문구라 포트는 글자 그대로(K30). 터미널 안내는 실제 포트(index.ts)
+export const DASHBOARD_REFUSAL =
+  'sumun 대시보드는 프록시를 거치지 않고 직접 여세요. Chrome·Edge는 --proxy-server만 주면 127.0.0.1·localhost를 원래 프록시로 보내지 않습니다. 로컬 개발 서버까지 기록하려고 --proxy-bypass-list에 <-loopback>을 넣었다면, 대시보드 주소를 그 뒤에 덧붙이세요: <-loopback>;127.0.0.1:<대시보드 포트>;localhost:<대시보드 포트>';
 // 이름을 해석하지 않고 글자만으로 대시보드 대상인지 안다: IP 표기는 isSelfAddress, 이름은 localhost와 localhost.만(E-3).
 // 이 PC에서 a.localhost는 풀리지 않는다 [확인됨: scripts/probe/ui2-names.mjs]. 그 밖의 이름은 해석한 주소로 판정한다(checkConnect, server.ts의 평문 lookup)
 // 평문은 WHATWG URL이 정규화한 hostname을 넘긴다(127.1·0x7f000001 → 127.0.0.1, V2). CONNECT는 parseConnectTarget이 숫자 표기를 이미 거절한다

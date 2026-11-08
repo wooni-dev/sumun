@@ -81,7 +81,11 @@ try {
     onDashboardRefused: () => {
       if (guided) return;
       guided = true;
-      process.stdout.write('sumun: 대시보드로 가는 요청이 프록시로 들어와 거절했습니다. 대시보드는 프록시를 거치지 않고 직접 여세요 — 브라우저(또는 Windows) 프록시 설정의 예외 목록에 127.0.0.1과 localhost를 넣으세요(이 안내는 한 번만 나옵니다).\n');
+      // [UI-6] G-7(K28): 예시에는 실제 대시보드 포트(기본 포트가 차서 다른 포트일 수 있다). 한 줄로(UI-2 E-8)
+      const D = dash?.port;
+      process.stdout.write(
+        `sumun: 대시보드로 가는 요청이 프록시로 들어와 거절했습니다. 대시보드는 프록시를 거치지 않고 직접 여세요 — Chrome·Edge는 --proxy-server만 주면 127.0.0.1·localhost를 원래 프록시로 보내지 않습니다. 로컬 개발 서버까지 기록하려고 <-loopback>을 넣었다면 대시보드 주소를 그 뒤에 덧붙이세요: --proxy-bypass-list="<-loopback>;127.0.0.1:${D};localhost:${D}" (Windows 시스템 프록시·Firefox에서는 확인하지 않았습니다. 이 안내는 한 번만 나옵니다).\n`,
+      );
     },
     onFlowStart: hooks.onFlowStart,
     onFlow: (flow) => {

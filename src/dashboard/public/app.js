@@ -7,13 +7,22 @@
 //   - 필터가 켜져 있으면 알림마다(묶어서) 필터 목록을 서버에서 다시 받는다. 필터 규칙을 브라우저에 다시 짜지 않는다(저장소 규칙 하나만)
 //   - 오류 문구는 고정이다. 입력이나 기록 내용을 문구에 넣지 않는다(U30)
 //   - 본문은 텍스트·16진. [UI-5b] 래스터 이미지는 버튼으로 canvas 미리보기, 한 층 gzip·deflate는 10MiB까지 풀기, 원본 저장(docs/ai/ui5b-cases.md B-1~B-7)
-import { tokenFromHash, showHidden, hostLabel, displayUrl, clip, hexDump, bodyText, buildQuery, createSSEParser, createModel, previewDecision, contentEncodings, decompressPlan, inflate, downloadName } from './view.js';
+//   [UI-6] 토큰은 읽자마자 주소에서 지우고 이 페이지의 메모리에만 둔다(사용자 결정 — 새로고침하면 다시 터미널 주소로). docs/ai/ui6-cases.md G-1~G-7
+import { tokenFromHash, showHidden, hostLabel, displayUrl, clip, hexDump, bodyText, buildQuery, createSSEParser, createModel, previewDecision, contentEncodings, decompressPlan, inflate, downloadName, createRefresher, tunnelOutcome, utf8View } from './view.js';
 
 const LIMITS = { domRows: 1000, url: 300, value: 4000, title: 8000, text: 256 * 1024, hex: 64 * 1024, pages: 20, idleMs: 45_000, pixels: 50_000_000, inflate: 10 * 1024 * 1024 };
 const token = tokenFromHash(location.hash);
+// G-3: 다른 일보다 먼저(실패 경로에서도 주소에 남지 않게 — K18). 새 기록 항목을 만들지 않고 state도 싣지 않는다(K15·K16)
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+// K17: 같은 탭에서 새 #t= 주소로 오면 다시 읽어 새 토큰으로 연다(주소의 #은 그대로라 다시 읽은 페이지가 토큰을 읽고 지운다)
+window.addEventListener('hashchange', () => {
+  if (tokenFromHash(location.hash)) location.reload();
+});
 const model = createModel();
 const ui = {};
-const state = { query: '', filtered: [], selected: null, pending: null, filterTimer: 0, renderQueued: false, everConnected: false };
+const state = { query: '', filtered: [], selected: null, pending: null, renderQueued: false, everConnected: false };
+// G-1(K1~K7): 필터가 켜져 있으면 알림이 계속 와도 1초 안에는 다시 받는다. 한 번에 하나만
+const filterRefresh = createRefresher(() => loadFiltered(), { waitMs: 300, maxWaitMs: 1000 });
 
 // --- DOM 도우미: 요소를 만들고 글자는 textContent로만 ---
 function el(tag, className, text) {
@@ -135,7 +144,7 @@ function setConn(text, cls) {
 // --- 목록 ---
 function statusCell(s) {
   if (s.state === 'pending') return ['진행 중', 's-pending'];
-  if (s.tunnel) return ['터널', ''];
+  if (s.tunnel) return tunnelOutcome(s)?.kind === 'failed' ? ['터널 실패', 's-bad'] : ['터널', '']; // [UI-6] G-2: 상세와 같은 판정(K34)
   if (s.status !== undefined) return [String(s.status), s.status >= 400 || s.statusFrom === 'proxy' ? 's-bad' : 's-ok'];
   if (s.error) return [String(s.error.code), 's-bad'];
   return ['-', ''];
@@ -205,18 +214,25 @@ async function reload() {
   const queued = state.pending;
   state.pending = null;
   for (const e of queued) model.apply(e);
-  if (state.query) await loadFiltered();
+  if (state.query) filterRefresh.now();
   render();
 }
 
+// refresher만 부른다(한 번에 하나). 받는 동안 필터를 바꿨으면 옛 조건의 결과는 버린다(K3)
 async function loadFiltered() {
+  const q = state.query;
+  if (!q) return;
+  let items;
   try {
-    const items = await fetchAll(state.query);
-    if (items === null) {
-      ui.ferr.textContent = '조회 조건이 올바르지 않습니다.';
-      state.filtered = [];
-    } else state.filtered = items.reverse();
-  } catch {}
+    items = await fetchAll(q);
+  } catch {
+    return;
+  }
+  if (q !== state.query) return;
+  if (items === null) {
+    ui.ferr.textContent = '조회 조건이 올바르지 않습니다.';
+    state.filtered = [];
+  } else state.filtered = items.reverse();
   render();
 }
 function applyFilter() {
@@ -227,8 +243,8 @@ function applyFilter() {
     return;
   }
   state.query = q;
-  if (q) loadFiltered();
-  else render();
+  if (q) filterRefresh.now();
+  else filterRefresh.cancel(), render();
 }
 
 // --- 실시간(SSE) ---
@@ -250,10 +266,7 @@ function handleMessage({ data }) {
   if (data.type === 'cleared' && state.selected !== null) (state.selected = null), showEmptyDetail();
   if (data.type === 'evicted' && (data.ids ?? []).includes(state.selected)) (state.selected = null), showEmptyDetail();
   if (data.type === 'done' && data.summary?.id === state.selected) select(state.selected);
-  if (state.query) {
-    clearTimeout(state.filterTimer);
-    state.filterTimer = setTimeout(loadFiltered, 300);
-  }
+  if (state.query) filterRefresh.request();
   scheduleRender();
 }
 
@@ -305,12 +318,17 @@ function showNotice(text) {
   ui.notice.textContent = text;
   ui.notice.hidden = false;
 }
-function kvTable(rows) {
+// [UI-6] G-5: 헤더 값의 UTF-8 바이트(latin1 글자로 저장됨)를 풀 수 있으면 풀어 보이고, 표시와 원래 바이트를 함께(K9·K10·K12)
+function utf8Text(v, max = LIMITS.value) {
+  const u = utf8View(v);
+  return u ? `${line(u.text, max)}  (UTF-8로 풀어 보임 · 원래 바이트 ${clip(u.hex, 600)})` : line(v, max);
+}
+function kvTable(rows, { utf8 = false } = {}) {
   const t = el('table', 'kv');
   const b = el('tbody');
   for (const [k, v] of rows) {
     const tr = el('tr');
-    tr.append(el('td', '', line(k, 200)), el('td', '', line(v)));
+    tr.append(el('td', '', line(k, 200)), el('td', '', utf8 ? utf8Text(v) : line(v)));
     b.append(tr);
   }
   t.append(b);
@@ -472,19 +490,22 @@ async function select(id) {
   info.push(['시작', new Date(f.startedAt).toLocaleString()], ['걸린 시간', `${Math.round(f.durationMs)}ms`], ['원래 요청 대상', q.url]);
   if (f.tls) info.push(['TLS SNI', f.tls.sni ?? '(없음)']);
   if (f.tunnel) info.push(['터널', `↑${f.tunnel.bytesUp} ↓${f.tunnel.bytesDown} 바이트, ${f.tunnel.address} — 암호화된 채로 지나가서 내용은 없습니다`]);
-  if (f.error) info.push(['실패', `${f.error.code} (${f.error.by})${f.error.status ? ` → ${f.error.status}` : ''}`]);
+  // [UI-6] G-2: 데이터가 오간 뒤 브라우저가 닫은 터널은 "실패"가 아니라 "끝남"(원래 값도 함께). 목적지가 끊음·응답 없음은 실패 그대로(K31·K32)
+  const to = tunnelOutcome(f);
+  if (to?.kind === 'closed') info.push(['끝남', to.text]);
+  else if (f.error) info.push(['실패', to?.kind === 'failed' ? to.text : `${f.error.code} (${f.error.by})${f.error.status ? ` → ${f.error.status}` : ''}`]);
   parts.push(kvTable(info));
-  parts.push(el('h3', '', '요청 헤더'), kvTable(q.headers), el('h3', '', '요청 본문'), bodySection(id, 'request', q));
+  parts.push(el('h3', '', '요청 헤더'), kvTable(q.headers, { utf8: true }), el('h3', '', '요청 본문'), bodySection(id, 'request', q));
   if (f.response) {
     const s = f.response;
-    parts.push(el('h3', '', `응답 ${s.status} ${line(s.statusMessage, 200)}`), kvTable(s.headers), el('h3', '', '응답 본문'), bodySection(id, 'response', s));
+    parts.push(el('h3', '', `응답 ${s.status} ${utf8Text(s.statusMessage, 200)}`), kvTable(s.headers, { utf8: true }), el('h3', '', '응답 본문'), bodySection(id, 'response', s));
   } else parts.push(el('h3', '', '응답'), el('p', 'note', '목적지 응답이 없습니다.'));
   ui.detail.replaceChildren(...parts);
 }
 
 // --- 시작 ---
 async function start() {
-  if (!token) return fatal('접속 토큰이 없습니다. 터미널에 나온 대시보드 주소(127.0.0.1:…/#t=…)를 그대로 여세요.');
+  if (!token) return fatal('접속 토큰이 없습니다. 토큰은 보안을 위해 주소에서 지우고 이 탭의 메모리에만 두기 때문에, 새로고침하면 다시 필요합니다. 터미널에 나온 대시보드 주소(127.0.0.1:…/#t=…)를 주소창에 붙여 넣어 여세요.');
   build();
   // U49: 이 주소(같은 포트)를 전에 쓴 다른 앱의 서비스 워커가 남아 있으면 요청을 가로챌 수 있다 — 알리고 등록을 푼다
   if (navigator.serviceWorker?.getRegistrations) {

@@ -25,6 +25,7 @@ const PUBLIC: Record<string, [file: string, type: string]> = {
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/view.js': ['view.js', 'text/javascript; charset=utf-8'], // [UI-5] 화면 순수 함수(app.js가 import)
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
+  '/favicon.svg': ['favicon.svg', 'image/svg+xml'], // [UI-6] G-4: 스크립트·링크 없는 작은 아이콘(index.html이 가리킴 — data: 아이콘은 CSP 위반, K21)
 };
 
 // 모든 응답에 붙인다(D-7, D-11, D-16, U10, U18, U50)
@@ -43,7 +44,8 @@ function secureHeaders(res: http.ServerResponse) {
 const TEXT: Record<number, string> = {
   400: '잘못된 요청입니다. 대시보드는 프록시가 아닙니다.',
   401: '접속 토큰이 필요합니다. 터미널에 나온 대시보드 주소(#t=…)로 여세요.',
-  403: '이 요청은 대시보드에서 받지 않습니다(다른 사이트·다른 주소·프록시를 거친 요청). 브라우저 프록시 설정의 우회 목록에 127.0.0.1과 localhost를 넣고, 터미널에 나온 주소로 여세요.',
+  // [UI-6] G-6(K35~K37): 원인이 여럿이라도 가장 흔한 해결을 먼저. 원인별로 나누지 않고 입력을 넣지 않는다. "복사"라고 쓰지 않는다
+  403: '터미널에 나온 대시보드 주소를 브라우저 주소창에 직접 붙여 넣어 여세요. 대시보드는 다른 페이지의 링크로 들어온 요청, 다른 주소 이름으로 온 요청, 프록시를 거쳐 온 요청을 받지 않습니다.',
   404: '없는 경로입니다.',
   405: '이 경로에서 쓸 수 없는 메서드입니다.',
   413: '요청 본문이 너무 큽니다.',
@@ -185,6 +187,12 @@ export async function startDashboard({
           }
           // [UI-3] 조회 API(api.ts). 요청 본문은 쓰지 않는다(지우기는 Content-Type만 본다) — 본문 상한은 위의 'data'가 지킨다
           return sendApi(res, handleApi(store, method, pathname, (req.url ?? '').slice(pathname.length + 1), req.headers));
+        }
+        // [UI-6] G-4: 아이콘 link를 무시하고 /favicon.ico를 묻는 브라우저에는 본문 없는 204(콘솔 404를 없앰). 위의 요청 검사는 이미 지났다(K23)
+        if (pathname === '/favicon.ico') {
+          if (method !== 'GET' && method !== 'HEAD') return fail(res, 405, { Allow: 'GET, HEAD' });
+          res.writeHead(204);
+          return void res.end();
         }
         const pub = PUBLIC[pathname];
         if (!pub) return fail(res, 404);

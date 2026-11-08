@@ -1407,6 +1407,42 @@
 - 5 check-method(a2f4133): `node scripts/check-method.mjs --id UI` → sub-nodes·merge-records·big-unit-test·big-unit-report·big-unit-review·big-unit-todo 모두 ✅ [확인됨].
 - 4 보고서: `docs/for-me/UI-report.md` — 결정 항목 1~22. 추천: R1·R3·R4·R5·R6·loopback 안내·403 문구를 **UI-6**에서 고치고, 사용자와 함께 실제 CA로 최종 확인(결정 10) 뒤 UI ✅.
 
+### [UI-6] 계획
+- 근거: UI 보고서 승인(2026-11-08, "모두 추천대로 진행해") 결정 1·3·4·5·6·8·9. **결정 4 다시 여쭘**(2026-11-08, 선택 창): 보고서 추천(sessionStorage)은 D-11과 `test/ui/UI-5.test.ts:84`(화면 소스에 브라우저 저장소 금지)에 부딪혀 → 사용자 답 = **"메모리에만"**(주소에서 지우고 메모리에만, 새로고침하면 토큰을 잃음 — 테스트 수정 없음, D-11 그대로). 토큰·인증 없이 열리는 새 경로·공격자가 고른 글자 표시를 바꾸므로 별도 컨텍스트의 검토 에이전트에게 사례를 먼저 받았다(O10) → `docs/ai/ui6-cases.md`. 해결안은 알려 주지 않았다.
+- 미확인 항목(O13): "Chrome이 프록시 설정에서 loopback을 빼는지" → [확인됨: UI 보고서 실측]. 남은 것(세션 밖): Edge·Firefox, Windows 시스템 프록시 설정에서의 동작(UI-6 E197 ⑨는 Chrome 플래그 조합만), 사람이 터미널 주소를 눌러 열 때(결정 10 최종 확인 때).
+- 기존 테스트 제약(바꾸지 않음): UI-5.test.ts:84 브라우저 저장소 금지, UI-2.test.ts:16 프록시 거절 문구에 "프록시를 거치지 않고"가 있고 대시보드 403 문구에는 없음.
+- 사례: `docs/ai/ui6-cases.md` K1~K37, 범위 밖 X1~X5, 설계 G-1~G-7. 재배정(O28 → UI 마무리 보고 결정 항목): K14·K19·K24(Chrome 프로필·403 화면에 토큰 주소가 남음 — 페이지가 막을 수 없음), K8의 U+FE0F(이모지 표시 선택자는 표시하지 않음).
+- 한 줄 보고: 목표 = UI 보고서 결정 1·3·4·5·6·8·9를 화면·문구에 반영(필터가 계속 갱신, 터널 끝남 표시, 토큰은 메모리에만, 아이콘, 헤더 UTF-8, 403·loopback 안내) / 범위 =
+  - `src/dashboard/public/view.js`: 새 `createRefresher()`, `tunnelOutcome()`, `utf8View()`, `showHidden()`의 숨은 문자 목록 넓힘
+  - `src/dashboard/public/app.js`: 토큰 읽기 뒤 `history.replaceState`·hashchange, `handleMessage`·`applyFilter`·`loadFiltered`(refresher), `statusCell`·`select`(터널 표시), `kvTable`·응답 제목(UTF-8 표시), 토큰 없음 문구
+  - `src/dashboard/server.ts`: TEXT[403] 문구, PUBLIC에 `/favicon.svg`, `/favicon.ico` 204
+  - 새 `src/dashboard/public/favicon.svg`, `src/dashboard/public/index.html`(link rel=icon)
+  - `src/tls/tunnel.ts`: `DASHBOARD_REFUSAL` 문구 / `src/index.ts`: `onDashboardRefused` 터미널 안내(실제 대시보드 포트)
+  - 새 `test/ui/UI-6.test.ts`(새 동작), 새 `test/ui/UI-6-regression.test.ts`(구현 전에도 통과해야 정상 — 브라우저 저장소 없음, 403·거절 문구는 고정 바이트, guard가 모든 경로에, O9)
+  - 새 `scripts/probe/ui6-review/`(에이전트 실험 — 실측 커밋), 새 `scripts/probe/ui6-browser.mjs`(브라우저 실측 — 실측 커밋, 구현 결과를 인용하는 커밋보다 먼저: O55)
+  - `docs/ai/ui6-cases.md`, `docs/ai/map.md`, `docs/ai/purpose-tree.md`, `docs/for-me/UI-6.md`(X5·결정 19·20의 "알아 둘 것" 포함), `docs/ai/progress.md`
+  - 하지 않을 것 = 기록 방식(헤더 latin1 저장, 터널 오류 코드), 터미널 요약 줄(X3), 본문 표시의 이모지 선택자, API 403 처리(X4), 기존 테스트 수정, CSP 변경
+- 예상 [추측] (판정 기준 포함):
+  - E195: stub = view.js에 새 함수 3개를 빈 동작으로 더함(나머지 파일 그대로). `npm run test:red -- test/ui/UI-6.test.ts` → 새 동작 테스트 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-6-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E196: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, 대기 0, 5분 안. 판정: 넷 다면 일치.
+  - E197(O31, 실제 브라우저 = headless Chrome 156, `scripts/probe/ui6-browser.mjs`): ① 필터(상태 200) 켠 채 0.15초마다 요청 4초 → 4초 동안 "필터 결과 n건"이 **3번 이상** 늘고, 끝난 뒤 1.5초 안에 전체 수와 같다 ② 연 뒤 주소에 `#` 없음, `history.state === null`, `window.name === ''`, `history.length` 그대로 ③ 대시보드를 다시 시작해 같은 탭에 새 주소로 이동 → "실시간"이 되고 주소에 `#` 없음 ④ 새로고침 → 문구에 "새로고침" ⑤ 콘솔 오류 0, `/favicon.svg` 200 ⑥ 헤더 값 UTF-8 `‮`(E2 80 AE) → 상세에 `⟨U+202E⟩`와 "UTF-8로 풀어 보임", 실제 U+202E 글자 0 ⑦ 터널 T1(데이터 뒤 RST) 상세 "끝남", T5(목적지가 끊음) 목록 "터널 실패" ⑧ 다른 출처 링크 → 403 문구가 "터미널에 나온"으로 시작 ⑨ Chrome `--proxy-bypass-list=<-loopback>;127.0.0.1:<D>;localhost:<D>` → 대시보드가 열리고 127.0.0.1 개발 서버 요청이 기록된다. 판정: 아홉 다면 일치. 시점: ①은 버스트 도중 표본(0.5초마다)과 끝난 뒤 1.5초.
+  - E198 [탐색]: 바꾼 뒤 Chrome 프로필(History, Sessions, Top Sites, Favicons)에 토큰이 남는 곳(K14의 한계 확인).
+
+- 실측 (명령 원문):
+  - E195 일치(6eb68c0 커밋 전, stub = view.js 끝에 createRefresher(빈 request·now)·tunnelOutcome·utf8View): `npm run test:red -- test/ui/UI-6.test.ts` → tests 10 / fail 10, 모두 AssertionError, 오류 0. `npm test -- test/ui/UI-6-regression.test.ts` → 3 / 3.
+  - 중간 1(8c62471, view.js): `npm test -- test/ui/UI-6.test.ts test/ui/UI-5.test.ts test/ui/UI-5b.test.ts` → 34 중 29, 5 실패(다른 파일 필요). 커밋 전 문제: Write 도구가 ` ` 같은 이스케이프를 글자로 바꿔 정규식 리터럴에 줄 구분 문자가 들어감 → `String.fromCharCode(92)`로 이스케이프를 만들어 다시 씀, 숨은 글자 0개 확인.
+  - 중간 2(13ff6ed, server.ts 쪽): `npm test -- test/ui/UI-6.test.ts test/ui/UI-6-regression.test.ts test/ui/UI-1.test.ts test/ui/UI-1-regression.test.ts test/ui/UI-2.test.ts test/ui/UI-T.test.ts` → 37 중 34, 3 실패(다음 커밋 필요). 두 번째라 남은 구현을 889bc1e 하나로(O53).
+  - 889bc1e: `npm test -- test/ui/UI-2.test.ts test/ui/UI-6.test.ts` → 18 / 18(두 번). **E196 불일치**: `timeout 400 npm test`(두 번) → 796 중 795, 1 실패 `test/ui/UI-2.test.ts:172` "CONNECT(불투명 터널): … 대시보드에 연결하지 않는다"(가짜 대시보드 서버에 누가 연결함). UI-2 혼자 세 번 8/8. UI-6.test.ts만 뺀 전체 `node scripts/test.mjs <git ls-files 83개>` → 786 / 786.
+- **테스트 결함(멈춤 — 사용자 확인 대기)**: 원인 [추측] — UI-6 "터미널 안내(G-7, K28)" 테스트가 방금 비운 임시 포트 P로 `npm start`를 띄우고, 시작 때 포트 점유 검사가 P+1(기본 대시보드 포트)에 연결한다. Windows는 포트를 연속 번호로 주므로 병렬로 도는 UI-2 테스트의 가짜 대시보드(포트 0으로 받은 임시 포트)와 겹친다. 지난 세션 교훈("테스트 포트는 임시 포트 범위 49152~ 밖에서")을 이 테스트에 지키지 않았다. 고치려면 `test/ui/UI-6.test.ts`의 포트 선택을 임시 포트 범위 밖(P와 P+1이 모두 빈 곳)으로 바꿔야 한다 → "테스트 수정 허용" 필요.
+- hook이 막은 것: ① 메시지 파일을 같은 명령에서 sed로 고치고 변수 경로로 커밋 → 규칙 C(의도한 보수적 동작, Edit 도구 + 절대 경로로 나눔) ② node 스크립트의 `>=`와 테스트 경로를 한 명령에 → "테스트 수정"으로 봄(의도한 보수적 동작, O45와 같은 종류 — 명령을 나눔).
+- [UI-6 테스트 수정] 4ecb95d 사용자 "테스트 수정 허용"(2026-11-08): `test/ui/UI-6.test.ts` "터미널 안내" 테스트의 포트 고르기만(임시 포트 범위 밖 20000~39999에서 P·P+1 모두 빈 번호), assertion 그대로. 구현 전 코드(6eb68c0 임시 작업 폴더 + node_modules 연결)에서 `node --test test/ui/UI-6.test.ts` → 10 / fail 10, 터미널 안내는 옛 문구로 AssertionError(올바른 이유).
+  - **E196 일치(4ecb95d)**: `timeout 400 npm test` 두 번 → tests 796 / pass 796 / fail 0 / todo 0, 종료 코드 0(77초·75초).
+  - **E197 일치(cf0c527)**: `timeout 240 node scripts/probe/ui6-browser.mjs` → ① 필터 결과 1→8→15→22건(4초 동안 3번 늘어남, 기준 3번 이상), 끝난 뒤 1.5초에 28건 = 저장소 상태 200 28건 ② 주소 `/`(# 없음), history.state null, window.name '', history.length 2(빈 탭 → 대시보드 이동 한 번 — 이동 전 값은 따로 재지 않음 [추측: 1]) ③ 같은 포트로 다시 시작 뒤 같은 탭 새 주소 → "실시간", # 없음 ④ 새로고침 → "…새로고침하면 다시 필요합니다…" ⑤ `/favicon.svg` 200, 콘솔 오류 0 ⑥ `OK ⟨U+202E⟩gnp.exe 완료 (UTF-8로 풀어 보임 · 원래 바이트 4f 4b 20 e2 80 ae …)`, 실제 U+202E 0 ⑦ 목적지가 끊은 터널 "터널 실패"(s-bad), 브라우저가 끊은 터널 상세 "끝남 — 데이터가 오간 뒤 브라우저가 연결을 닫았습니다(…원래 기록: aborted (client))" ⑧ 403 "터미널에 나온 대시보드 주소를…" ⑨ `<-loopback>;127.0.0.1:D;localhost:D` → 대시보드 "실시간", /devapp 기록 1.
+  - E198 [탐색] 기록: 같은 스크립트, Browser.close 뒤 임시 프로필 검색 → 옛·새 토큰이 `Default\History`, `Default\Sessions\Session_*`, `Default\Sessions\Tabs_*`, `Default\Favicons`, `segmentation_platform\ukm_db`, 옛 토큰은 `Default\Top Sites`에도(K14·K24 한계 — 페이지 코드로 못 막음).
+- 계획과 달라진 점: E196이 처음엔 불일치(테스트 결함 → 사용자 허용 수정 4ecb95d, 위). 실측 커밋 cf0c527은 구현 뒤에 만든 스크립트(O55대로 문서 커밋보다 먼저 둠). 범위의 `docs/ai/map.md` 외에 바뀐 파일 없음.
+- UI 마무리 보고 결정 항목(O28 재배정): K14·K19·K24(프로필·403 화면에 토큰 주소), K8의 U+FE0F, 범위 밖 X1~X4. `docs/for-me/UI-6.md` "UI 마무리 보고에 올릴 것".
+- 미확인(세션 밖): Edge·Firefox·Windows 시스템 프록시 설정에서의 loopback 예외, 사람이 터미널 주소를 직접 열 때 — UI 보고서 결정 10 최종 확인 때.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
