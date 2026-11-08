@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [STO-2] 완료(브랜치 feat/STO-2 → 병합). 다음: STO-3. STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
+- 작업: [STO-3] 완료(브랜치 feat/STO-3 → 병합). 다음: STO-4. STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -888,7 +888,38 @@
 - hook 기록(O25): `sed -i`(src 파일)와 `npm test -- test/…`를 한 명령에 이어 쓰다 막힘 — 의도한 보수적 동작. 명령을 나눴다.
 - 계획과 달라진 점: `STORE_LIMITS`·`StoreOptions`를 export(설계 지도·다음 단위에서 기본값을 보려고). 회귀 파일 없음.
 - 범위 밖 관찰: 없음.
+- [STO-2] 완료: 3ea89d5..e390e7c, 병합 cf6c0d7. `node scripts/check-method.mjs --id STO-2`(cf6c0d7) → 11개 모두 ✅. 다음: STO-3.
 
+
+### [STO-3] 계획
+- 근거: 사례 배정 `docs/ai/sto-cases.md` "STO-3"(D1~D10), 결정 S-3(상태 = 브라우저가 받은 코드)·S-6(호스트 표기는 저장소가 맞춤)·S-8(메서드 대소문자 무시, CONNECT 보관).
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 설계 [추측]:
+  - 새 `src/store/filter.ts`: `parseFilter(f)` → 검사·정규화한 조건, `matchesFilter(summary, f)` → 참/거짓(대시보드가 새 알림 하나만 볼 때 쓴다 — D10). `store.list(f)`도 같은 함수를 쓴다.
+  - 조건(모두 AND, 빈 문자열·undefined는 조건 없음): `host`(문자열), `method`(문자열), `status`(정수 100~999), `after`(id보다 큰 것만, 0 이상 정수), `limit`(앞에서부터 최대 n개, 1 이상 정수). 잘못된 타입은 고정 문구 TypeError.
+  - 호스트 맞추기(S-6): 입력과 기록의 `request.target.host`를 **같은 함수로** 정규화한다 — 소문자, 끝 점 제거, URL 규칙(IPv6 대괄호·표기, 국제화 도메인 → punycode, 숫자 IPv4 `2130706433` → `127.0.0.1`). 입력에 `:포트`가 있으면 포트도 비교(기본 포트 80·443도 그대로 비교 — URL 객체는 기본 포트를 지우므로 포트는 직접 읽는다). 이름이면 같은 호스트와 하위 도메인(`example.com` → `api.example.com`, `badexample.com`은 아님), IP면 정확히 같을 때만. target 없는 기록은 호스트 조건에 걸리지 않는다(D1). 해석할 수 없는 입력은 아무것도 걸리지 않는다(예외 없음 — 입력 중인 글자).
+  - 상태: 요약의 `status`(목적지 응답 또는 프록시가 보낸 코드). 상태 없는 기록은 걸리지 않는다(D7).
+  - 페이지(D9): 오프셋이 아니라 `after`(마지막으로 본 id) — 중간에 오래된 것이 빠져도 건너뜀·중복이 없다.
+- 한 줄 보고: 목표 = 목록을 호스트·메서드·상태 코드로 거르고 id 기준으로 나눠 받기 / 범위 =
+  - 새 `src/store/filter.ts`: `parseFilter()`, `matchesFilter()`, `normHost()`
+  - `src/store/store.ts`: `list(filter)`가 `parseFilter`·`matchesFilter`·`after`·`limit`를 쓰게
+  - 새 `test/sto/STO-3.test.ts`(새 동작), 회귀가 있으면 새 `test/sto/STO-3-regression.test.ts`
+  - 새 `scripts/probe/sto3-filter-cost.mjs`(E147)
+  - `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/STO-3.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 프록시가 기록을 만들 때 호스트 표기 바꾸기(X3, 범위 밖), 상태 범위(5xx) 같은 고급 조건, 프록시 연결
+- 예상 [추측] (판정 기준 포함):
+  - E145: 새 동작 테스트는 stub(빈 함수만 export한 `src/store/filter.ts` — `parseFilter`는 받은 것을 그대로, `matchesFilter`는 항상 true)과 지금 store(필터 무시)에서 모두 assertion 실패, 오류 0(O2). 판정: 실패 수 = 테스트 수, 오류 0.
+  - E146: 구현 뒤 `npm test` 실패 0, "큰 단위 대기(todo) STO: 2개". 판정: 둘 다.
+  - E147 [탐색]: 기록 10,000건에서 `list({ host })`·`list({ method, status })` 한 번에 걸리는 시간과, 알림 하나에 `matchesFilter` 한 번 걸리는 시간을 기록한다.
+- 실측 (명령 원문):
+  - E145 일치(160360f): stub으로 `npm run test:red -- test/sto/STO-3.test.ts` → 14개 모두 assertion 실패, 오류 0.
+  - E146 일치(9b7c366): `npm test` → tests 636 / pass 634 / fail 0 / todo 2, "큰 단위 대기(todo) STO: 2개, 그중 실패 2개".
+  - E147 [탐색] 기록(9b7c366): `node scripts/probe/sto3-filter-cost.mjs` → 10,000건에서 list() 2.33ms, host 11.23ms, method·status 2.21ms, limit 50 0.36ms, matchesFilter 0.00ms.
+- 구현 중 결정: 상태 조건에 **0을 허용**(100~999와 함께). 이유 — 테스트 D7이 `status: 0` 조건을 예외 없이 쓰고, 기록에 0이 실제로 나올 수 있다(sto-cases D7). 테스트는 바꾸지 않았다. STO 보고서 결정 항목에 올린다.
+- 실제 클라이언트 실측(O31): STO-4에서.
+- 내 실수 기록: filter.ts 커밋(019f78e)의 "검증"에 "작업 트리에서 두 파일 함께 43 / 43"을 덧붙였다 — 중간 커밋에는 그 시점에 실행한 것만 적는다(O1). 이력 재작성 없이 남긴다.
+- 계획과 달라진 점: filter.ts에 `matchesParsed`(list가 조건을 한 번만 검사하려고)와 `Filter`·`ParsedFilter` 타입을 export. 회귀 파일 없음.
+- 범위 밖 관찰: 없음.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
