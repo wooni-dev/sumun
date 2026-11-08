@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [SEC-3] 테스트 수정(사용자 허용 대기, 브랜치 feat/SEC-3-testfix). 그 뒤 STO 큰 단위.
+- 작업: [SEC-3] 테스트 수정 완료(브랜치 feat/SEC-3-testfix → main 병합). 다음: STO 큰 단위.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -763,7 +763,7 @@
   - 재현 디버그 스크립트는 작업 폴더 밖 임시 파일이었다 — 같은 재현을 ② 재현 테스트로 저장소에 둔다(O19).
   - ② 재현 테스트 ae9ce3f(red 3/3), ③ 수정 87bea3b·a3d42f5. `npm test` → 591 / 591.
   - E130 일치: 사용자가 다시 `npm.cmd run ca -- uninstall` → "sumun: 해제됨 — 지문 090295D7…". 기록 `%LOCALAPPDATA%\sumun\ca-command.log`: `확인 입력 "yes" → 진행` / `certutil -delstore 종료 코드 0` / `결과: 해제됨`. `node src/ca-cmd.ts status` → "사용자 Root: 등록 안 됨", `reg query HKCU\…\Root\Certificates`에 090295D7 0개. `node scripts/probe/sec3-browser.mjs unregistered` → "Chrome: … "Example Domain" false, 인증서 오류 표시 ERR_CERT_AUTHORITY_INVALID", curl 둘 다 종료 코드 60, "E130(브라우저 부분): 일치". 첫 해제 실패의 원인(터미널 "예" 입력인지 certutil 실패인지)은 끝내 모른다.
-- **테스트 결함(내가 쓴 테스트, 보고 대기):** `test/ca/SEC-3.test.ts`의 `forgeCert`는 CN을 UTF-8로 인코딩하지 않아 forge가 0xFF 위 글자를 아래 바이트로 자른다('ѕ' → 'U', U+202E → '.') [확인됨: 구현 중 디버그]. 그래서 "F1·B6·E1" 테스트는 키릴·방향 문자 사례를 실제로는 시험하지 않는다. 대신 `scripts/probe/sec3-lookalike.mjs`(d944462)로 진짜 글자를 확인했다. 고치려면 "테스트 수정 허용"이 필요하다 → 사용자 보고.
+- ✅ (2026-11-08 고침 — 아래 [SEC-3 테스트 수정]) ~~**테스트 결함(내가 쓴 테스트, 보고 대기):**~~ `test/ca/SEC-3.test.ts`의 `forgeCert`는 CN을 UTF-8로 인코딩하지 않아 forge가 0xFF 위 글자를 아래 바이트로 자른다('ѕ' → 'U', U+202E → '.') [확인됨: 구현 중 디버그]. 그래서 "F1·B6·E1" 테스트는 키릴·방향 문자 사례를 실제로는 시험하지 않는다. 대신 `scripts/probe/sec3-lookalike.mjs`(d944462)로 진짜 글자를 확인했다. 고치려면 "테스트 수정 허용"이 필요하다 → 사용자 보고.
 - 남은 작은 빈틈: 거부(관리자·파이프)는 작업 기록에 시작 줄만 남고 이유가 없다.
 - 계획과 달라진 점: 범위에 없던 새 파일 `test/ca/SEC-3-log.test.ts`(O26 재현), `src/ca/ca.ts`는 `daclOf`와 함께 `me`도 export, 진입점에 작업 기록 파일(`%LOCALAPPDATA%\sumun\ca-command.log`), 실측 스크립트 3개(`sec3-reg`, `sec3-lookalike`, `sec3-browser`). E127은 PowerShell 실행 정책 때문에 `npm.cmd`로.
 - 범위 밖 관찰: 2026-11-08 오전 9:09에 시작된 `npm run test:red -- test/tls/TLS-4.test.ts` node 프로세스 4개(PID 5888·7664·8096·9296)가 아직 실행 중 — 이전 작업의 남은 프로세스로 보인다 [추측]. 종료하지 않고 사용자에게 보고.
@@ -784,6 +784,15 @@
 - **수정 중 발견(O26 ① 기록, 2026-11-08):**
   - ⓐ 처음 고친 판(`forge.util.encodeUtf8` + UTF8 태그)은 새 긍정 전제 assertion에서 실패했다 — forge가 UTF8 태그일 때 **스스로** UTF-8로 바꾸므로 두 번 인코딩된다('ѕ' → 'Ñ'). 고침: 태그만 주고 encodeUtf8은 빼기. 같은 방식으로 쓴 `scripts/probe/sec3-lookalike.mjs`(d944462)도 두 번 인코딩이었다 — 그 출력의 "Node subject = CN=Ñumun…"을 그때 놓쳤다. 그래서 위 [SEC-3]의 "진짜 글자를 확인했다"는 **틀린 기록**이었다(경고 결과는 깨진 글자도 비ASCII라 우연히 같았다 [추측]).
   - ⓑ B3("지울 지문이 다른 인증서 일련번호와 겹치면 지우지 않음")가 **실행마다 결과가 다르다**: 수정 전 파일로 `node --test --test-name-pattern="^B3" test/ca/SEC-3.test.ts` 10번 → 통과 4, 실패 6 [확인됨]. 원인: 일련번호로 쓰는 SHA-1의 첫 hex가 8~f면 forge가 음수 INTEGER로 써서 Node가 `-65D4…`로 읽는다(`9a2b3c → -65D4C4`, `009a2b3c → 9A2B3C` [확인됨: 임시 스크립트]). 그러면 "겹치는 일련번호" 인증서가 만들어지지 않고 구현은 그대로 지운다(종료 코드 0). 지난 591/591은 운이었다. 구현 쪽 판단(Node의 serialNumber는 앞 00을 뺀다)은 맞다. 같은 `forgeCert` 안의 결함이고 기대값은 바꾸지 않으므로 같은 허용 범위에서 고친다(앞에 00, 긍정 전제 assertion) — 사용자에게 보고.
+- c8b1b43 [SEC-3] 테스트 수정 — 사용자 허용("테스트 수정 허용" 입력, 2026-11-08). 원래 값·이유·구현 전 코드 확인은 커밋 메시지.
+- 실측 (명령 원문):
+  - E132 일치(c8b1b43): `npm test -- test/ca/SEC-3.test.ts` → 22 / 22 / 실패 0. B3만 `node --test --test-name-pattern="^B3" test/ca/SEC-3.test.ts` 10번 → 통과 10.
+  - E133 일치(bd4b605): `node scripts/probe/sec3-testfix-old.mjs` → 옛 방식 subject "CN=Uumun local CA 2026-11-08", CN "x\u001b[2K.evil", 일련번호 다름 → 긍정 전제 셋 다 false.
+  - E134 일치(bd4b605): `node scripts/probe/sec3-testfix-stub.mjs` → 전체 22, 실패 22, ERR_ASSERTION 22, 다른 실패 0. B3·F1·B6·E1은 긍정 전제 뒤 원래 기대값에서 실패.
+  - E135 일치(bd4b605 뒤): `npm test` → 591 / 591 / 실패 0 / 대기 0.
+  - 다시 돌린 `node scripts/probe/sec3-lookalike.mjs`(bd4b605, 이중 인코딩 고친 뒤) → subject가 진짜 글자("CN=ѕumun…", "CN=abc‮evil"), 경고·이스케이프 결과는 처음과 같음.
+- hook 기록(O25): Edit 도구로 쓴 일부 줄의 한글이 `\uAE0D…` 같은 이스케이프 문자열로 저장됐다(실행 결과는 같음) → node 스크립트로 다시 썼다. hook 문제가 아니라 도구 쪽 [추측]. 셸 명령 안의 `\\`가 `\` 하나로 바뀌는 것도 봤다(heredoc 안 Python·node 코드) — 그래서 고칠 스크립트는 Write 도구로 쓰고 백슬래시는 String.fromCharCode(92)로 만들었다. 원인은 확인하지 않았다.
+- 계획과 달라진 점: 범위에 없던 B3 일련번호 수정(같은 `forgeCert`, 기대값 변경 없음)과 `scripts/probe/sec3-lookalike.mjs`(이중 인코딩)·새 `sec3-testfix-stub.mjs`·`sec3-testfix-old.mjs`, `docs/for-me/SEC-3.md` 결함 항목 갱신.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
