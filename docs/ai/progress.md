@@ -1229,9 +1229,22 @@
   - E182: 수정 뒤 `npm test -- test/ui/UI-1.test.ts`(혼자) → 실패 0. 판정: 실패 0이면 일치.
   - E183: 수정 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, "큰 단위 대기(todo) UI: 2개", 5분 안. 판정: 넷 다면 일치.
   - E184(O31, 실제 클라이언트): `node -e`로 빈 포트 P를 받아 닫은 직후 `npm.cmd start -- --port P` → 시작 줄의 대시보드 주소가 `127.0.0.1:P+1`, `curl.exe http://127.0.0.1:<P+1>/` → 200. 판정: 둘 다면 일치.
+- 실측 (명령 원문):
+  - E181 일치(aaddd77 커밋 전): `npm run test:red -- test/ui/UI-2b.test.ts` → tests 3 / fail 3, AssertionError 3개("P+1=59268: 시작해야 함 — EADDRINUSE" 등), 오류 0. `npm test -- test/ui/UI-2b-regression.test.ts` → 2 / 2.
+  - 중간(64b343b, 대시보드만 고침): `npm test -- test/ui/UI-2b.test.ts test/ui/UI-2b-regression.test.ts` → 5 중 4, 프록시 1 실패(다음 커밋 필요). 같은 새 테스트를 실패한 채 돌린 것은 이 1번.
+  - E182 일치(8423c7f): `npm test -- test/ui/UI-1.test.ts` → 13 / 13.
+  - E183 **불일치**(8423c7f): `timeout 400 npm test` 두 번 → 둘 다 종료 코드 1, 735 중 732 통과·실패 1(1회째 UI-1 "대시보드가 프록시 포트 + 1에…" 대시보드 60166, 2회째 UI-1 "--no-dashboard면 … P+1은 닫혀 있다" Missing expected rejection). 원인 [추측]: UI-1 테스트가 쓰는 임시 포트 P의 P+1은 PC 전체에서 다음에 배정될 번호라 병렬 실행에서 다른 테스트가 가져감 — 제품 결함이 아니라 테스트 구조. 사용자에게 보고 → 사용자 "테스트 수정 허용".
+  - 2ba1f82 테스트 수정 허용 — 사용자 채팅 "테스트 수정 허용"(2026-11-08): UI-1 `freePortPair`(임시 포트 범위 밖 20000~39999에서 P·P+1 확인), UI-2b 재현 반복 5→2. 기대값 그대로. 검증: 수정 전 코드(aaddd77 src)에서 UI-2b.test.ts 3 / 3 실패, UI-1 구현 전 진입점(829003e의 index.ts·cli.ts)에서 UI-1.test.ts 13 중 4 실패. 첫 수정본(P+1만 더 확인)에서 전체 실행 1회 통과·1회 실패(대시보드 49481) → 최종본.
+  - E183 재측정(2ba1f82): `timeout 400 npm test` 두 번 → 1회째 종료 코드 1(실패 1: test/tls/TLS-4c-regression.test.ts "K7: 평문 프록시 — 헤더를 1바이트씩 …" deepEqual — 이 PR과 무관한 시간 민감 테스트, 아래 범위 밖), 2회째 종료 코드 0, 735 / 733 / 실패 0 / 대기 2, 80초. UI-1 테스트는 두 번 다 통과.
+  - E184 일치(2ba1f82 코드): `P=$(node -e "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>console.log(p))})")` → 57610, `npm.cmd start -- --port 57610` → 시작 줄 "… 대시보드: http://127.0.0.1:57611/#t=…", `curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:57611/` → 200. 끈 뒤 57610·57611 LISTENING 0.
+- 계획과 달라진 점: 테스트 수정(사용자 허용, 2ba1f82)이 더해졌다. E183 불일치.
+- hook이 막은 것: 없음.
+- 범위 밖 관찰: (1) W1~W4([::1] 쪽 놓침 — ui2b-cases) → UI 보고서 결정 항목. (2) TLS-4c-regression K7이 전체 실행에서 한 번 실패 — 시간 민감(O43) [추측: 내용 안 봄].
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
+  - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
+  - ⚠ [UI-2b 중 발견, 범위 밖] test/tls/TLS-4c-regression.test.ts "K7: 평문 프록시 — 헤더를 1바이트씩 보내면 h 안에 408 …"이 전체 실행에서 한 번 실패(deepEqual), 다음 실행은 통과 — 시간 민감 assertion으로 보인다(O43) [추측].
   - [UI-2 검토에서 같은 갈래] V19 다른 로컬 프록시(두 번째 sumun·Fiddler)를 거친 사슬로 대시보드에 닿는다(토큰이 있으면 200) [확인됨: `node scripts/probe/ui2-review/r6-chain.mjs`], V20 다른 sumun 실행의 대시보드 포트는 이 프록시가 모른다 [추측]. UI-2는 막지 않았다(ui2-cases E-9).
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
