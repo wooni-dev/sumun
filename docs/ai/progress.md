@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). **[INFRA-11]**(O47 커밋 메시지 hook) 완료, 다음 [INFRA-12](O48~O52 + 새 관찰 O53·O54 여쭙기), 그다음 아래 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
+- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). **[INFRA-11]**(O47 커밋 메시지 hook) 완료, 지금 **[INFRA-12]**(O48~O54 지침 + check-method merge-record) 진행 중, 다음 [INFRA-13](O54 기계 검사), 그다음 아래 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
 - 지난 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 8b494f4. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
   - 이번 세션에 끝낸 것: 사용자 확인 3건(SEC-3 테스트 수정 허용, O47 보류, 예전 프로세스 종료) → SEC-3 테스트 수정(c8b1b43) → STO-T → STO-1 → STO-2 → STO-3 → STO-4 → STO 감사(AUDIT-7)·검토·보고서(AUDIT-8) → **STO 보고서 승인**(결정 1~15 모두 추천대로, 이 기록 커밋).
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
@@ -1026,6 +1026,27 @@
   - 새 방식 관찰 O53(예상된 실패가 멈춤에 걸림, 선택 창 답으로는 안 풀림)·O54(공유 임시 폴더의 옛 메시지 파일) → `docs/method-feedback.md`, INFRA-12 계획 때 여쭙는다.
 - 범위 밖 관찰: 없음.
 - [INFRA-11] 완료: 757f27b..33d843a, 병합 b5eba10. `node scripts/check-method.mjs --id INFRA-11`(b5eba10) → 10개 ✅, tree-updated ➖(INFRA). `node scripts/check-method.mjs --id PRX-2b | grep -c 5e7b491` → 0(지운 커밋이 섞이지 않음). 이 줄은 [AUDIT-11]로 커밋(O50 반영 전).
+
+### [INFRA-12] 계획
+- 근거: STO 보고서 결정 13(O48~O52 승인), INFRA-11 사용자 결정 D5(O48~O52는 INFRA-12). 사용자 지시(2026-11-08) "이어서 해".
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 사용자 결정(2026-11-08, 이 세션): **O53** = 지침으로(같은 새 테스트 파일을 "다음 커밋 필요" 상태로 돌리는 것은 두 번까지, 그 뒤 남은 구현은 한 커밋에 묶음, 멈추면 채팅 답이 필요). **O54** = 지침(메시지 파일 이름에 노드 ID, Write 결과 확인 뒤 커밋) + 기계 검사는 **INFRA-13**(feat/<ID> 브랜치에서 커밋 제목 ID가 브랜치와 같은지 — hook이라 검토 사례 먼저, O10). 승인 상태는 method-feedback.md에 적는다.
+- O10: 차단 규칙(hook·권한·인증서)을 바꾸지 않는다 — check-method는 판정 도구이고 지침은 문장이다(INFRA-10과 같음).
+- 설계 [추측]:
+  - O50 `scripts/check-method.mjs`: 새 규칙 `merge-record`(작은 단위). 입력 `mergeRecord = { applies, merged, recorded }`. 규칙 도입 전 → ➖ "규칙 도입 전", 병합 전 → ➖ "병합 전", 기록 있음 → ✅, 병합했는데 기록 없음 → ➖ "기록 대기"(검사는 보통 병합 직후·기록 전에 돌리므로 ❌로 하지 않는다) + 표시 `pending: true`. 새 큰 단위 규칙 `merge-records`: 하위 노드 중 `pending`이 있으면 ❌. 기록 = 제목이 `[ID] 병합 뒤 기록`으로 시작하는 커밋, 병합 = 제목이 `[ID] 병합`으로 시작하는 병합 커밋. 상수 `MERGE_RECORD_SINCE` = 이 계획 커밋(그 전 작업은 ➖).
+  - CLAUDE.md: O48(O36 보강 — 커밋 전 stub red 결과에 맞추려고, 또는 실행이 끝나지 않아 테스트 구조를 고쳤으면 고친 내용과 기대값 변경 여부를 테스트 커밋에), O49(중간 커밋 검증에 "실행함, 예상대로 n개 실패(다음 커밋 필요)" 허용), O50(병합 뒤 기록 커밋 `[ID] 병합 뒤 기록: …` — check-method 결과), O51(판정 기준 예시에 측정 시점), O52(큰 단위 마무리 보고서 실행 증거에 -T 흐름의 경로마다 실제 클라이언트 실측), O53, O54(지침 부분).
+  - `.claude/agents/method-auditor.md`: merge-record ➖ "기록 대기"·merge-records 판정, O52 실행 증거 확인.
+- 한 줄 보고: 목표 = 승인된 O48~O52와 새로 결정한 O53·O54(지침 부분)를 지침과 기계 검사에 반영 / 범위 =
+  - `scripts/check-method.mjs`: `checkCommits()` 규칙 `merge-record`(새 인자 `mergeRecord`), `checkBigUnit()` 규칙 `merge-records`, 상수 `MERGE_RECORD_SINCE`, CLI의 병합·기록 커밋 읽기
+  - 새 `test/infra/check-method-infra12.test.mjs`(새 동작), 새 `test/infra/check-method-infra12-regression.test.mjs`(구현 전에도 통과해야 정상 — 기존 규칙 결과가 그대로)
+  - `CLAUDE.md`(개발 방식 절·큰 단위 절), `.claude/agents/method-auditor.md`
+  - `docs/method-feedback.md`(승인 표: O48~O52 반영 위치, O53·O54 승인 상태), `docs/for-me/INFRA-12.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = O54 기계 검사(INFRA-13), 멈춤 장치 변경(O53 결정), 과거 커밋 재작성, message-format 규칙 변경
+- 예상 [추측] (판정 기준 포함):
+  - E159: 구현 전(이 계획 커밋의 코드) `npm run test:red -- test/infra/check-method-infra12.test.mjs` → 새 동작 테스트가 모두 assertion 실패, 오류 0(stub 없음 — 기존 모듈, 새 규칙이 결과에 없으면 assert.ok로 잡는다). `npm test -- test/infra/check-method-infra12-regression.test.mjs` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0.
+  - E160: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0. 판정: 둘 다.
+  - E161: 구현 뒤 `node scripts/check-method.mjs --id STO-5` → merge-record ➖ "규칙 도입 전", 나머지 11개 ✅. `--id STO` → merge-records ✅. 판정: 셋 다 이와 같으면 일치.
+  - E162: INFRA-12 병합 직후 `--id INFRA-12` → merge-record ➖ "기록 대기", `[INFRA-12] 병합 뒤 기록` 커밋 뒤 → ✅. 판정: 둘 다 이와 같으면 일치.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
