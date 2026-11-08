@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [SEC-3] 테스트 수정 완료(브랜치 feat/SEC-3-testfix → main 병합). 다음: STO 큰 단위.
+- 작업: [SEC-3] 테스트 수정 완료(병합 dcd720f). 다음: STO 큰 단위.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -794,6 +794,7 @@
 - hook 기록(O25): Edit 도구로 쓴 일부 줄의 한글이 `\uAE0D…` 같은 이스케이프 문자열로 저장됐다(실행 결과는 같음) → node 스크립트로 다시 썼다. hook 문제가 아니라 도구 쪽 [추측]. 셸 명령 안의 `\\`가 `\` 하나로 바뀌는 것도 봤다(heredoc 안 Python·node 코드) — 그래서 고칠 스크립트는 Write 도구로 쓰고 백슬래시는 String.fromCharCode(92)로 만들었다. 원인은 확인하지 않았다.
 - 계획과 달라진 점: 범위에 없던 B3 일련번호 수정(같은 `forgeCert`, 기대값 변경 없음)과 `scripts/probe/sec3-lookalike.mjs`(이중 인코딩)·새 `sec3-testfix-stub.mjs`·`sec3-testfix-old.mjs`, `docs/for-me/SEC-3.md` 결함 항목 갱신.
 
+- [SEC-3 테스트 수정] 완료: 8206c68..37e8b56, 병합 dcd720f + 이 기록 커밋. `node scripts/check-method.mjs --id SEC-3`(dcd720f) → test-unchanged **⚠ 허용됨**(c8b1b43, O40 의도대로), message-format ❌는 그대로 8fecd7e·a3d42f5(이번 커밋들은 위반 없음), 나머지 ✅. predictions-measured 근거에 E132~E135가 안 나온다 — 노드의 첫 계획 섹션만 보는 것으로 보인다 [추측: 코드 안 봄]. 결과에는 영향 없고, STO 보고서의 O47과 함께 올린다.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
