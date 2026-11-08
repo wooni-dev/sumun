@@ -93,6 +93,22 @@ const until = async (cond: () => boolean, ms = 2000) => {
   while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
 };
 
+// 응답 원문의 본문. Transfer-Encoding: chunked면 조각을 풀어서 본다(목적지가 길이 없이 보내면 프록시는 HTTP 규칙대로 chunked로 전달한다)
+// [TLS-4에서 고침, 사용자 허용 2026-11-08: 처음에는 본문이 원문 끝에 그대로 있다고 가정했다]
+function bodyOf(raw: string) {
+  const i = raw.indexOf('\r\n\r\n');
+  let rest = raw.slice(i + 4);
+  if (!/\r\ntransfer-encoding: *chunked\r\n/i.test(`${raw.slice(0, i)}\r\n`)) return rest;
+  let out = '';
+  for (;;) {
+    const j = rest.indexOf('\r\n');
+    const n = parseInt(rest.slice(0, j), 16);
+    if (!n) return out;
+    out += rest.slice(j + 2, j + 2 + n);
+    rest = rest.slice(j + 2 + n + 2);
+  }
+}
+
 test('TLS 흐름: 브라우저처럼 CONNECT 뒤 TLS로 보낸 요청이 복호화되어 기록되고, 검증한 HTTPS 목적지로 중계된다', WAIT, async () => {
   const t = await setup({ trustUpstream: true });
   try {
@@ -101,7 +117,7 @@ test('TLS 흐름: 브라우저처럼 CONNECT 뒤 TLS로 보낸 요청이 복호�
     // 1) 클라이언트: 프록시 CA가 서명한 localhost 인증서를 믿었고, 목적지의 응답을 받았다
     assert.equal(r.authorized, true, '프록시가 낸 인증서를 프록시 CA로 검증할 수 있어야 함');
     assert.match(r.raw, /^HTTP\/1\.1 200/);
-    assert.match(r.raw, /\r\n\r\nsecure-hello$/);
+    assert.equal(bodyOf(r.raw), 'secure-hello');
 
     // 2) 목적지: 터널 안의 경로와 쿠키를 그대로 받았다
     assert.deepEqual(t.got.at(-1), { url: '/hello?q=1', cookie: 'k=SECRET' });

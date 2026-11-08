@@ -71,7 +71,8 @@ function badLeaf(signer: Pair | null, notBefore: Date, notAfter: Date): Pair {
 
 const ctx = {} as { proxyCA: Pair; upCA: Pair; otherCA: Pair; proxy: Awaited<ReturnType<typeof startProxy>>; flows: any[]; lookups: Record<string, number> };
 let mark = 0;
-const NAMES: Record<string, string[]> = { localhost: ['127.0.0.1'], 'evil.test': ['127.0.0.1'], 'rebind.test': ['127.0.0.1', '127.0.0.2'], 'myhost': ['127.0.0.1'] };
+// 'localhost.'(끝점): G1이 CONNECT에 그대로 보내는 변형 [TLS-4 구현 뒤 추가, 사용자 허용 2026-11-08: 처음에는 빠져 그 변형만 502였다]
+const NAMES: Record<string, string[]> = { localhost: ['127.0.0.1'], 'localhost.': ['127.0.0.1'], 'evil.test': ['127.0.0.1'], 'rebind.test': ['127.0.0.1', '127.0.0.2'], 'myhost': ['127.0.0.1'] };
 before(async () => {
   ctx.proxyCA = await loadOrCreateCA(path.join(tmp(), 'proxy'));
   ctx.upCA = await loadOrCreateCA(path.join(tmp(), 'up'));
@@ -121,11 +122,29 @@ async function connectMitm(host: string, port: number, o: { servername?: string 
   const status = Number(head.match(/^HTTP\/1\.1 (\d{3})/)?.[1] ?? 0);
   if (status !== 200) return (raw.destroy(), { status, head });
   const servername = o.servername === null ? undefined : (o.servername ?? (net.isIP(host) ? undefined : host));
-  const t = tls.connect({ socket: raw, servername, ca: o.ca ?? ctx.proxyCA.certPem, ALPNProtocols: o.alpn ?? ['http/1.1'], ...(o.anyName ? { checkServerIdentity: () => undefined } : {}) });
+  // host: 소켓만 주면 Node는 이름 검사를 'localhost'로 한다 → IP로 접속할 때는 그 IP로 검사하게 넘긴다
+  // [TLS-4 구현 뒤 고침, 사용자 허용 2026-11-08: 처음에는 host를 넘기지 않아 IP 인증서가 항상 이름 불일치였다(A11)]
+  const t = tls.connect({ socket: raw, host, servername, ca: o.ca ?? ctx.proxyCA.certPem, ALPNProtocols: o.alpn ?? ['http/1.1'], ...(o.anyName ? { checkServerIdentity: () => undefined } : {}) });
   const tlsError = await new Promise<string | undefined>((r) => (t.once('secureConnect', () => r(undefined)), t.once('error', (e: any) => r(e.code ?? e.message))));
   return { status, head, t, tlsError };
 }
-// 터널 안에서 요청 원문을 보내고 응답 n개를 받는다(Content-Length로 끝을 안다)
+// 응답 하나의 본문. Transfer-Encoding: chunked면 조각을 풀어서 본다(목적지가 길이 없이 보내면 프록시는 HTTP 규칙대로 chunked로 전달한다)
+// [TLS-4 구현 뒤 고침, 사용자 허용 2026-11-08: 처음에는 본문이 원문 끝에 그대로 있다고 가정했다(E11·B2)]
+const isChunked = (head: string) => /\r\ntransfer-encoding: *chunked\r\n/i.test(`${head}\r\n`);
+function bodyOf(raw: string) {
+  const i = raw.indexOf('\r\n\r\n');
+  let rest = raw.slice(i + 4);
+  if (!isChunked(raw.slice(0, i))) return rest;
+  let out = '';
+  for (;;) {
+    const j = rest.indexOf('\r\n');
+    const n = parseInt(rest.slice(0, j), 16);
+    if (!n) return out;
+    out += rest.slice(j + 2, j + 2 + n);
+    rest = rest.slice(j + 2 + n + 2);
+  }
+}
+// 터널 안에서 요청 원문을 보내고 응답 n개를 받는다(Content-Length로, chunked면 마지막 조각으로 끝을 안다)
 async function exchange(t: tls.TLSSocket, raw: string, n = 1) {
   let out = '';
   const on = (d: Buffer) => (out += d.toString('utf8'));
@@ -135,8 +154,10 @@ async function exchange(t: tls.TLSSocket, raw: string, n = 1) {
     const parts = out.split(/(?=HTTP\/1\.1 \d{3} )/).filter(Boolean);
     return parts.length >= n && parts.slice(0, n).every((p) => {
       const i = p.indexOf('\r\n\r\n');
+      if (i < 0) return false;
+      if (isChunked(p.slice(0, i))) return p.includes('\r\n0\r\n\r\n', i);
       const len = Number(p.match(/content-length: (\d+)/i)?.[1] ?? NaN);
-      return i >= 0 && (Number.isNaN(len) ? true : Buffer.byteLength(p.slice(i + 4)) >= len);
+      return Number.isNaN(len) ? true : Buffer.byteLength(p.slice(i + 4)) >= len;
     });
   };
   await until(done, 4000);
@@ -158,7 +179,7 @@ test('E11·B1·D7·E13: CONNECT → 프록시 CA가 서명한 그 사이트 인�
     assert.match(m.t!.getPeerCertificate().subjectaltname, /DNS:localhost/);
     const r = await exchange(m.t!, GET('/hello?q=1', `localhost:${up.port}`, 'Cookie: k=SECRET\r\n'));
     assert.match(r, /^HTTP\/1\.1 200 /);
-    assert.ok(r.endsWith('secure-hello'));
+    assert.equal(bodyOf(r), 'secure-hello');
     assert.deepEqual(up.got, [{ url: '/hello?q=1', host: `localhost:${up.port}`, cookie: 'k=SECRET' }]);
     m.t!.destroy();
     await until(() => newFlows().length >= 1);
@@ -280,7 +301,7 @@ test('B2·B3: SNI가 CONNECT와 달라도 인증서와 목적지는 CONNECT 기�
     assert.equal(m.tlsError, undefined);
     assert.match(m.t!.getPeerCertificate().subjectaltname, /^DNS:localhost$/, 'SNI가 아니라 CONNECT 이름의 인증서');
     const r = await exchange(m.t!, GET('/s', `localhost:${up.port}`));
-    assert.ok(r.endsWith('secure-hello'));
+    assert.equal(bodyOf(r), 'secure-hello');
     assert.equal(evil.got.length + evil.conns, 0, 'SNI의 이름으로 연결하지 않는다');
     m.t!.destroy();
     await until(() => newFlows().length >= 1);
