@@ -1135,6 +1135,47 @@
 - 범위 밖 관찰: 없음(X1은 계획에 기록).
 - [UI-T] 완료: 0740342..daa2972, 병합 829003e. `node scripts/check-method.mjs --id UI-T`(829003e) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅).
 
+### [UI-1] 계획
+- 근거: 사용자 지시(2026-11-08) "이어서 진행해". 사례·결정은 `docs/ai/ui-cases.md`(배정 "UI-1", D-1~D-3, D-5~D-7, D-11~D-13). 차단 규칙이지만 사례는 UI-T 계획 때 받은 것을 쓴다(STO-1~4와 같은 방식, O10).
+- 미확인 항목(O13): 변화 없음. 이월: UI-T 병합 뒤 `--id UI-T` merge-record ✅ [확인됨: 2d09496 뒤 실행] → 일치.
+- 지켜야 할 기존 테스트 [확인됨: test/prx/PRX-4.test.ts, test/sto/STO-4-regression.test.ts, test/tls/TLS-1.test.ts]: `parseArgs(['--port','9000'])`는 정확히 `{ port: 9000 }`, `src/index.ts`를 띄우면 시작 출력은 **한 줄**(요약 줄 개수까지 셈), 시작 실패 때 stdout은 비고 stderr는 있음, 여러 테스트가 무작위 포트로 동시에 띄움.
+- 설계 [추측]:
+  - `src/dashboard/server.ts` `startDashboard({ store, port = 8081, headersTimeoutMs = 10_000 })` → `{ port, token, url, close() }`. 127.0.0.1에만 열고, 열기 전에 127.0.0.1:P·[::1]:P에 접속해 보아 누가 응답하면 EADDRINUSE로 거절(U41·U42, 프록시 `portAnswers`와 같은 방식).
+  - 토큰 = `crypto.randomBytes(32)`의 base64url(43자, 실행마다 새로, D-2). 비교는 `timingSafeEqual`(길이가 다르면 바로 거절, U46). URL 쿼리의 토큰은 받지 않는다(U43). 쿠키를 쓰지 않는다(U47).
+  - 요청 검사 순서: 대상이 origin-form(`/…`)이 아니면 400 → `Via`에 `sumun`이 있으면 403 → Host가 `127.0.0.1:<P>`·`localhost:<P>`(이름은 대소문자 무시)가 아니거나 없으면 403 → Origin이 있으면 `http://127.0.0.1:<P>`·`http://localhost:<P>`가 아니면 403 → `Sec-Fetch-Site`가 있으면 `same-origin`·`none`이 아니면 403 → 본문이 16KB를 넘으면 413 → `/api/*`는 `Authorization: Bearer <토큰>`이 아니면 401 → 경로·메서드(없으면 404, 메서드가 틀리면 405).
+  - 모든 응답에 보안 헤더: CSP `default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`, `Cross-Origin-Resource-Policy: same-origin`. CORS 헤더·쿠키는 붙이지 않는다. 오류 본문은 고정 문구(text/plain), 입력을 되돌리지 않는다(U30, U51). 로그를 찍지 않는다(U31).
+  - 경로(UI-1 몫): `GET /` → `src/dashboard/public/index.html`, 정적 파일은 정해 둔 목록(`/`, `/app.js`, `/app.css`)만 — 파일이 없으면 404(UI-5가 app.js를 만든다). `GET /api/ping` → `{ runId }`(보호 검사용 — 조회 API는 UI-3).
+  - 헤더 크기 16KB(431), `headersTimeoutMs` 안에 헤더가 다 오지 않으면 닫음(U37).
+  - `src/cli.ts` `parseArgs`: `--no-dashboard`, `--dashboard-port N`(줄 때만 결과에 `dashboard: false`·`dashboardPort: N`, 프록시 포트와 같으면 오류, 둘을 함께 주면 오류).
+  - `src/index.ts`: 프록시를 연 뒤 대시보드를 연다(D-12 기본 켬). **기본 포트 = 프록시 포트 + 1**(기본 실행이면 8081 — D-1과 같다. 테스트들이 무작위 포트로 동시에 띄워도 부딪히지 않게. 65535면 −1). 대시보드 주소는 **기존 시작 줄 끝에** 붙인다("… 대시보드: http://127.0.0.1:8081/#t=…") — 시작 출력 한 줄을 지킨다. 대시보드 포트를 못 쓰면 한 줄 오류, 종료 코드 1, stdout 없음. 프록시의 `dashboardPort` 옵션은 UI-2.
+  - → 기본 포트를 "+1"로 정한 것과 주소를 시작 줄에 붙인 것은 UI 보고서 결정 항목에 올린다.
+- 한 줄 보고: 목표 = 대시보드 서버를 열고 다른 사이트·리바인딩·다른 사용자의 요청을 처리 전에 막는다 / 범위 =
+  - 새 `src/dashboard/server.ts`: `startDashboard()`, 요청 검사 `guard()`, 보안 헤더 `secureHeaders()`, 정적 파일 `servePublic()`, 포트 검사 `portAnswers()`
+  - 새 `src/dashboard/public/index.html`(빈 화면 뼈대 — app.js를 부름)
+  - `src/cli.ts` `parseArgs()`(새 인자 2개), `src/index.ts`(대시보드 시작·시작 줄)
+  - 새 `test/ui/UI-1.test.ts`(새 동작), 새 `test/ui/UI-1-regression.test.ts`(구현 전에도 통과해야 정상 — 127.0.0.1에만 열림, close 뒤 닫힘, O9)
+  - `docs/ai/map.md`(dashboard 모듈), `docs/for-me/UI-1.md`, `docs/ai/progress.md`, `docs/ai/purpose-tree.md`
+  - 하지 않을 것 = 조회 API(UI-3), SSE(UI-4), 화면(UI-5), 프록시 쪽 차단(UI-2), 기존 테스트 수정
+- 예상 [추측] (판정 기준 포함):
+  - E170: stub(`startDashboard`가 127.0.0.1에 모든 요청에 200을 주는 서버를 열고 token·url은 빈 문자열, cli·index는 그대로)에서 `npm run test:red -- test/ui/UI-1.test.ts` → 새 동작 테스트가 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-1-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0.
+  - E171: 구현 뒤 `npm test`(전체) → 실패 0, 대기는 UI 2개만(UI-T는 app.js가 없어 그대로 대기). 기존 PRX-4·STO-4·TLS-1 진입점 테스트 그대로 통과. 판정: 셋 다.
+  - E173(결함 수정 뒤 추가): 고친 뒤 `npm test`(전체)가 끝나고(5분 안) 실패 0, 대기는 UI 2개만. 판정: 셋 다면 일치.
+- 범위 안 결함(O26, 2026-11-08, 2e63d8e 구현 뒤 실측) [확인됨: scripts/probe/ui1-*.mjs, 103b1bc]:
+  - 증상: 전체 `npm test`가 5분 넘게 끝나지 않는다. 폴더별로 돌리면 `test/tls`만 200초 제한에 걸리고(`TLS-1.test.ts`), 그 파일만 혼자 돌리면 통과한다.
+  - 원인: Windows는 `listen(0)`에 포트를 **연속 번호**로 준다(`ui1-ports.mjs` → 56484~56489 "연속"). 대시보드 기본 포트를 "프록시 포트 + 1"로 정했으므로, 테스트가 고른 P의 P+1을 다른 테스트의 서버가 쓰고 있기 쉽다. 그러면 `npm start`가 대시보드를 열지 못해 종료 코드 1로 끝나고(`ui1-collide.mjs`), TLS-1 "npm start는 터널을 켠다"는 시작 줄 없이 프록시에 연결해 응답을 기다리다 멈춘다. 시작이 느려진 것은 아니다(`ui1-startup.mjs` 켬·끔 모두 약 0.6초 — 처음 추측은 틀림).
+  - 고칠 방향 [추측]: `--dashboard-port`로 **직접 준 포트**가 차 있으면 지금처럼 멈춘다(U41). **기본으로 정한 포트**(프록시 + 1)가 차 있으면 다른 빈 포트(OS가 고름)로 열고 시작 줄에 그 주소를 보인다 — 차 있는 포트를 쓰지 않으므로 U41의 위험(가짜 대시보드)은 없다. 기존 TLS-1·PRX-4 테스트와 UI-1 테스트는 바꾸지 않는다. → UI 보고서 결정 항목(기본 포트 규칙).
+  - 재현 테스트: 새 `test/ui/UI-1-default-port.test.ts`(P+1을 잡아 둔 채 `--port P`로 띄우면 시작 줄 한 줄, 대시보드는 P+1이 아닌 포트에서 200).
+  - 처리: 기록 7e0c9e1 → 재현 테스트 c2844c7(2e63d8e에서 red: AssertionError 1개 "종료하면 안 됨: 종료 1") → 수정 bb45a5f.
+- 실측 (명령 원문):
+  - E170 일치(e71aef1 커밋 전, stub): `npm run test:red -- test/ui/UI-1.test.ts` → tests 13 / fail 13, AssertionError 13개, 오류 0. `npm test -- test/ui/UI-1-regression.test.ts` → 1 / 1.
+  - E171 **불일치**(2e63d8e): UI-1 테스트는 14 / 14였지만 전체 `npm test`가 5분 넘게 끝나지 않았다(위 결함). 첫 실행에서 OPTIONS가 401(토큰 검사가 먼저)로 1개 실패 → 메서드 검사를 앞으로(2e63d8e에 포함).
+  - E172 일치(bb45a5f 코드): `npm.cmd start -- --port 18080` → 시작 줄 한 줄 "… 끝내려면 Ctrl+C / 대시보드: http://127.0.0.1:18081/#t=<토큰> …". `curl.exe http://127.0.0.1:18081/` → 200 text/html(CSP·X-Frame-Options·no-store·no-referrer, CORS 없음), `/api/ping` 토큰 없음 401, `-H "Authorization: Bearer <토큰>"` → 200 `{"runId":"c5f01109acd1057c"}`, `-H "Origin: http://evil.example"` → 403, `-H "Host: evil.example:18081"` → 403. 끈 뒤 18080·18081 LISTENING 없음.
+  - E173 일치(bb45a5f): `timeout 400 npm test` → 종료 코드 0, tests 720 / pass 718 / fail 0 / todo 2, 80초, "큰 단위 대기(todo) UI: 2개, 그중 실패 2개".
+- 계획과 달라진 점: 기본 포트가 차 있을 때 다른 빈 포트로 여는 규칙을 더했다(결함 수정). 새 재현 테스트 파일 `UI-1-default-port.test.ts`와 진단 스크립트 `scripts/probe/ui1-startup.mjs`·`ui1-ports.mjs`·`ui1-collide.mjs`를 더했다. 같은 새 테스트 파일을 실패한 채 두 번 돌렸다(OPTIONS — 두 번째는 진단용, O53 한도 안).
+- hook이 막은 것: 진단 명령(`>` + `test/` 경로) 2번 — 의도한 보수적 동작. 스크립트 파일로 실행했다.
+- 범위 밖 관찰: 없음.
+  - E172 실측(O31, 실제 클라이언트): `npm start -- --port 18080`을 띄우고 시작 줄의 주소를 확인한 뒤 curl로 `http://127.0.0.1:18081/` → 200 HTML, `/api/ping`(토큰 없음) → 401, 토큰 → 200, `-H "Origin: http://evil.example"` → 403, `-H "Host: evil.example:18081"` → 403. 판정: 다섯 다 이와 같으면 일치.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
