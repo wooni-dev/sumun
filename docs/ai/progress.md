@@ -1319,6 +1319,30 @@
 - UI 보고서 결정 항목: `docs/for-me/UI-4.md` "UI 보고서에 올릴 결정".
 - [UI-4] 완료: bdf5e89..e7b2d49, 병합 6552725. `node scripts/check-method.mjs --id UI-4`(6552725) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: [UI-5] 화면(`src/dashboard/public/app.js` — UI-T 대기가 풀린다).
 
+### [UI-5] 계획
+- 근거: 사용자 지시(2026-11-08) "응 이어서 해". 배정 `docs/ai/ui-cases.md` "UI-5"(U13, U18, U19, U21~U29, U30 화면, U49, U50 화면), 결정 D-3·D-9·D-10·D-11·D-14·D-15·D-16, STO 보고서 결정 4("복호화 꺼짐" 안내). 출력 규칙은 UI-T 계획 때 받은 사례를 쓴다(UI-1·UI-3·UI-4와 같은 방식, O10) [추측: 새 차단 규칙이 아니라 이미 받은 사례를 화면에서 지키는 일이라고 판단].
+- 나눔(O28 — 재배정이므로 UI 보고서 결정 항목): UI-5가 너무 커서 **[UI-5b] 화면 보강**을 새로 둔다(목적 나무에 추가, Claude가 추가한 작은 기능). U21(SVG·HTML blob URL)·U28(압축 폭탄)과 D-9의 래스터 이미지 미리보기, D-10 압축 해제, 본문 내려받기를 UI-5b로 옮긴다 — 이미지 미리보기는 CSP(`img-src blob:`)를 바꿔야 해서 따로 보는 것이 안전하다. UI-5는 본문을 텍스트·16진으로만 보인다(압축된 본문은 "압축됨 — 16진"으로).
+  - UI-T의 대기 파일(P = `src/dashboard/public/app.js`)은 UI-5가 만든다 → UI-T는 UI-5에서 실제 검사가 된다. UI-5b는 그 뒤에 UI-T가 통과하는 상태에서 진행.
+- 미확인 항목(O13): 변화 없음(모두 세션 밖 조건). "브라우저가 loopback을 프록시에서 빼는지"는 UI 보고서 실측 때.
+- 설계 [추측]:
+  - 화면 코드를 둘로: `view.js` = DOM 없는 순수 함수(Node 테스트가 import), `app.js` = DOM 연결만. 둘 다 빌드·라이브러리·CDN 없는 ES 모듈(D-16, U18, U23). `app.css` 새로(index.html이 이미 링크 — 지금 404).
+  - `view.js`: `tokenFromHash`(`#t=<22~128자 base64url>`만), `showHidden`(C0·DEL·C1 제어 문자, bidi 제어 U+061C·200E·200F·202A~202E·2066~2069, zero-width U+200B~200D·2060·FEFF, U+00AD → `⟨U+XXXX⟩`; 본문은 줄바꿈·탭 유지 — U25·U26·D-14), `hostLabel`(xn-- 라벨을 직접 짠 punycode 디코더로 풀어 `ascii (유니코드)` 함께 — D-14, U26), `displayUrl`(target 기준 `scheme://host[:port]path`, 없으면 원문), `clip`(긴 값 자르고 `… (+n자)` — U27), `hexDump`(16바이트 줄, 상한), `bodyText`(UTF-8 해석·이진 판단·상한), `headerValues`(이름 대소문자 무시, 배열만 씀 — `__proto__`도 데이터, U24), `buildQuery`(host·method·status만, status는 숫자만 — 아니면 null), `createSSEParser`(줄 쪼개짐·CRLF·주석·여러 data 줄), `createModel`(Map 기반 목록: load·apply(start/done/evicted/cleared)·setRun(runId 바뀌면 비움)·rows(최신 순)·상한 maxRows).
+  - `app.js`: 토큰을 `#` 뒤에서 읽어 `Authorization: Bearer`로(D-3), fetch는 `cache: 'no-store'`(U50). 화면 = 머리(연결 상태·runId·안내), 필터(host·method·status), 목록(최신 위, DOM에는 1,000줄까지 — U27), 상세(요청·응답 헤더 표, 본문 텍스트/16진 전환, 텍스트 256KiB·16진 64KiB까지). 출력은 모두 `textContent`·`createElement`(U19), 데이터로 링크·src를 만들지 않는다(U22). 실시간 = fetch 스트림 SSE(D-4), 끊기면 1초→최대 10초 간격 재연결, hello마다 목록을 API로 다시 받는다(받는 동안 온 알림은 모아 두었다가 적용 — UI-4 결정). 필터가 켜져 있으면 알림마다(300ms 묶음) 필터 목록을 다시 받는다(브라우저에 필터 규칙을 다시 짜지 않음 — 저장소 규칙 하나만). 지우기는 두 번 누르기(브라우저 확인 창 없음). postMessage·브라우저 저장소·서비스 워커 등록 없음(U13, D-11, U49) — 이 주소에 이미 서비스 워커가 있으면 경고하고 등록을 푼다(U49).
+  - "복호화 꺼짐" 안내(STO 결정 4): `/api/ping` → `{ runId, decrypt }`, `startDashboard({ decrypt })`, index.ts가 `decrypt: !!ca`를 넘긴다. 꺼져 있으면 화면 위에 안내.
+  - 오류 문구는 고정(입력을 되돌리지 않음 — U30 화면).
+  - → 결정 항목(UI 보고서): UI-5b로 나눈 것, 토큰은 주소의 `#`에 그대로 둠(새로고침이 되게 — 지우면 새로고침 때 토큰을 잃음), DOM 1,000줄 상한, 본문 표시 상한.
+- 한 줄 보고: 목표 = 브라우저에서 기록 목록·필터·상세·본문(텍스트·16진)을 실시간으로 보되, 기록 내용이 화면에서 실행되거나 속이지 못하게 한다 / 범위 =
+  - 새 `src/dashboard/public/view.js`(위 함수들), 새 `src/dashboard/public/app.js`(화면 연결), 새 `src/dashboard/public/app.css`
+  - `src/dashboard/server.ts`: `PUBLIC`에 `/view.js`, `/api/ping`에 `decrypt`, `startDashboard({ decrypt })`
+  - `src/index.ts`: `startDashboard`에 `decrypt: !!ca`
+  - 새 `test/ui/UI-5.test.ts`(새 동작), 새 `test/ui/UI-5-regression.test.ts`(구현 전에도 통과해야 정상 — index.html에 인라인 스크립트·외부 자원 없음, 페이지는 토큰 없이 200, O9)
+  - `docs/ai/purpose-tree.md`(UI-5 🔨, UI-5b 추가), `docs/ai/map.md`, `docs/for-me/UI-5.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 이미지 미리보기·압축 해제·내려받기·JSON 보기(UI-5b), CSP 변경, 저장소 변경, 기존 테스트 수정
+- 예상 [추측] (판정 기준 포함):
+  - E188: stub = `view.js`가 모든 함수를 빈 동작으로 export(app.js·app.css 없음, server.ts 그대로). `npm run test:red -- test/ui/UI-5.test.ts` → 새 동작 테스트 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-5-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E189: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, **"큰 단위 대기(todo) UI" 줄 없음 또는 0개**(UI-T 2개가 실제 검사로 통과), 5분 안. 판정: 넷 다면 일치.
+  - E190(O31, 실제 클라이언트 = 브라우저): 목적지 `node -e`(127.0.0.1:18090, E180과 같은 명령), `npm.cmd start -- --port 18080`, Chrome(Claude in Chrome)으로 시작 줄의 대시보드 주소를 연다. ① curl로 보낸 요청(`Cookie: k=CURL-COOKIE`, 본문 `curl-body`)이 목록에 있다 ② 그 줄을 누르면 상세에 `CURL-COOKIE` 헤더와 본문 `curl-body`가 보인다 ③ 페이지를 그대로 둔 채 curl로 새 요청을 보내면 새로고침 없이 목록에 나타난다 ④ 메서드 필터 `POST`로 GET 요청이 빠진다 ⑤ 경로에 `<img src=x onerror=alert(1)>`와 U+202E를 넣은 요청은 글자 그대로(`⟨U+202E⟩` 표시) 보이고 실행되지 않는다(콘솔에 CSP 위반·오류 없음) ⑥ "복호화 꺼짐" 안내가 보인다. 판정: 여섯 다면 일치.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
