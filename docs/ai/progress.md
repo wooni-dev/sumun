@@ -1378,6 +1378,19 @@
   - E193(O31, 실제 브라우저 = 에이전트의 CDP 도우미로 띄운 headless Chrome 156): `scripts/probe/ui5b-fixtures.mjs`가 띄운 목적지에 프록시로 요청 → 대시보드 상세에서 ① PNG(Content-Type `text/plain`)는 미리보기 버튼 → canvas가 그 크기로 그려짐 ② gzip 텍스트는 풀린 글이 보임 ③ gzip 폭탄(1GiB→약 1MiB)은 10MiB에서 멈추고 탭 메모리가 +300MB를 넘지 않음 ④ 20000×20000 PNG는 "너무 큼"으로 그리지 않음(메모리 +300MB 이하) ⑤ `image/svg+xml`·스크립트 든 SVG는 미리보기 버튼 없음, 텍스트로 ⑥ br 본문은 "풀 수 없음" 안내 ⑦ 페이지에 `blob:` URL·`<img>` 0개, 콘솔 오류 0. 판정: 일곱 다면 일치. 내려받기 저장 창은 자동화로 누를 수 없어 `showSaveFilePicker` 존재만 본다.
   - E194 [탐색]: CDP `Target.createTarget`으로 대시보드 주소를 열 때의 `Sec-Fetch-Site`와 결과(200/403).
 
+- 실측 (명령 원문):
+  - E191 일치(62f5bc6 커밋 전, stub = view.js 끝에 빈 함수 7개): `npm run test:red -- test/ui/UI-5b.test.ts` → 첫 실행 7 AssertionError + 1 TypeError(inflate 테스트가 stub의 {}로 Buffer.from(undefined)) → 테스트 구조 수정(bytes가 Uint8Array인지 먼저 assert, O48) → tests 8 / fail 8, 모두 AssertionError, 오류 0. `npm test -- test/ui/UI-5b-regression.test.ts` → 첫 실행 1 실패(/['"]data:/가 SSE 파서의 'data:' 필드 이름을 잡음 — 테스트의 오탐) → 정규식을 data:<형식>/로 좁힘 → 2 / 2.
+  - 중간(e73d519, view.js): `npm test -- test/ui/UI-5b.test.ts` → 8 중 7, 1 실패(app.js 필요).
+  - 0517b6b(app.js·app.css): `npm test -- test/ui/UI-5b.test.ts test/ui/UI-5b-regression.test.ts test/ui/UI-5.test.ts test/ui/UI-5-regression.test.ts test/ui/UI-T.test.ts` → 29 / 29.
+  - E192 일치(0517b6b): `timeout 400 npm test` → 종료 코드 0, tests 783 / pass 783 / fail 0 / todo 0, 83초.
+  - E193 **불일치**(0517b6b 코드): `timeout 180 node scripts/probe/ui5b-browser.mjs`(854d601) → Chrome/156.0.8078.80 headless(임시 프로필). ① /img.png(text/plain, 81B) 미리보기 버튼 → canvas 40×30 ✅ ② /gz "압축(gzip)을 풀었습니다: 10000바이트" ✅ ③ /gzbomb(260,934B) "10485760바이트 — 10MiB까지만" ✅, Chrome 작업 메모리 806→1107MB = **+301MB(기준 +300MB 이하 → 넘음)** ④ /bomb.png(388,871B, 20000×20000) "너무 커서" 버튼 없음, 1061→738MB ✅ ⑤ /evil.svg 미리보기 버튼 없음, 글자로, document.title 그대로 ✅ ⑥ /br "이 브라우저에서 풀 수 없어" ✅ ⑦ img 0·blob/data 0·showSaveFilePicker function ✅, **콘솔 오류 1건 "Failed to load resource: … 404"** [추측: /favicon.ico — PUBLIC 목록에 없음]. 판정: ③⑦이 기준을 못 맞춰 불일치. 원인 [추측]: ③은 10MiB 결과와 스트림 조각·16진 문자열이 함께 살아 있고 GC 전이라서, ⑦은 기준을 정할 때 브라우저의 자동 favicon 요청을 생각하지 않아서.
+  - E194 [탐색] 기록: 같은 스크립트 — `Target.createTarget`으로 연 echo 서버 → `{"site":"none"}`, 대시보드 주소 → 바로 200(화면 "sumun 실시간 …"). UI-5 실측의 403은 확장(claude-in-chrome)이 연 탭의 `cross-site` 때문.
+- 계획과 달라진 점: E193 불일치(위). 실측 스크립트가 구현 뒤에 있다(854d601 — 구현 뒤에 만든 것).
+- hook이 막은 것: view.js에 `cat >> … <<'EOF'`로 덧붙이고 같은 명령에서 `npm test -- test/ui/UI-5b.test.ts`를 돌리려다 "커밋된 테스트 파일은 수정할 수 없습니다" — 리다이렉트와 테스트 경로가 한 명령에 있어서. 의도한 보수적 동작(O45와 같은 종류). 임시 파일에 쓰고 명령을 나눔.
+- 미확인 갱신: "터미널 주소를 직접 열 때 Sec-Fetch-Site" — 브라우저가 연 탭은 none·200 [확인됨: E194]. 사람의 실제 클릭은 여전히 세션 밖(UI 보고서 실측).
+- 범위 밖 관찰: `/favicon.ico` 404(server.ts PUBLIC 목록) → UI 보고서 결정 항목.
+- UI 보고서 결정 항목: `docs/for-me/UI-5b.md` "UI 보고서에 올릴 결정".
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
