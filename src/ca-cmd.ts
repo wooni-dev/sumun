@@ -4,6 +4,7 @@
 // 입력이 대화형 터미널이 아니면(파이프·스크립트·AI 에이전트의 셸) install·uninstall은 거부한다(결정 6). 관리자 터미널도 거부한다(결정 7).
 // 동작은 src/ca/command.ts, 저장소 접근은 src/ca/winstore.ts. 사례·결정은 docs/ai/sec3-cases.md.
 import fs from 'node:fs';
+import path from 'node:path';
 import readline from 'node:readline';
 import { execFile } from 'node:child_process';
 import { loadOrCreateCA, defaultCADir, daclOf, me } from './ca/ca.ts';
@@ -48,6 +49,14 @@ try {
   process.stderr.write('sumun: LOCALAPPDATA 환경 변수가 없거나 절대 경로가 아닙니다.\n');
   process.exit(1);
 }
+// 작업 기록: %LOCALAPPDATA%\sumun\ca-command.log(저장소 밖). 한 줄 = 시각 + 단계·지문·종료 코드·결과. 쓰기 실패는 명령을 막지 않는다
+const logFile = path.join(path.dirname(caDir), 'ca-command.log');
+const log = (line: string) => {
+  try {
+    fs.appendFileSync(logFile, `${line}\n`);
+  } catch {}
+};
+if (args.cmd !== 'status') log(`${new Date().toISOString()} ---- npm run ca -- ${args.cmd}`);
 try {
   const code = await runCaCommand(args.cmd, {
     store: makeWinStore(run),
@@ -56,7 +65,9 @@ try {
     checkDir: (d) => checkCADir(d, { realpath: (p) => fs.realpathSync.native(p), dacl: daclOf, mySid: me }),
     input: { isTTY: !!process.stdin.isTTY, readLine },
     write,
+    log: args.cmd === 'status' ? undefined : log,
   });
+  if (args.cmd !== 'status' && fs.existsSync(logFile)) write(`sumun: 작업 기록: ${safeText(logFile, 300)}\n`);
   rl?.close();
   process.exit(code);
 } catch (err) {
