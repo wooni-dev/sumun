@@ -28,6 +28,12 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-tests.mjs\"",
             "timeout": 15,
             "statusMessage": "테스트 파일 결과 확인 중"
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/commit-check.mjs\"",
+            "timeout": 15,
+            "statusMessage": "새 커밋 메시지 형식 확인 중"
           }
         ]
       }
