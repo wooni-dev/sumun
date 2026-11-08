@@ -37,13 +37,13 @@
  │   ├ [PRX-3] Flow 모양 보완: 시작 알림, 목적지 칸(target), 본문 도중 타임아웃, 실패 코드 bad-response   ✅  → src/flow/flow.ts, src/proxy/server.ts  (PRX 보고서 결정 2, 3, 4, 10)
  │   └ [PRX-4] 실행 진입점 `npm start` + 포트 값 검사(A10)   ✅  → src/index.ts, src/cli.ts  (PRX 보고서 결정 6)
  ├ [TLS] HTTPS 복호화 — 왜: 트래픽 대부분이 HTTPS라 내용을 보려면 필요  🔨  의존: PRX-2
- │   ├ [TLS-T] 큰 단위 테스트: CONNECT → 프록시가 TLS 종료 → 복호화한 요청을 기록 → 검증한 HTTPS 목적지로   🔨  → test/tls/TLS-T.test.ts  (대기: src/tls/mitm.ts)
+ │   ├ [TLS-T] 큰 단위 테스트: CONNECT → 프록시가 TLS 종료 → 복호화한 요청을 기록 → 검증한 HTTPS 목적지로   🔨  → test/tls/TLS-T.test.ts  (대기 풀림 2026-11-08: TLS-4가 src/tls/mitm.ts를 만듦, 2개 통과)
  │   ├ [TLS-1] CONNECT 터널 (복호화 없이 그대로 통과)                    ✅  → src/tls/tunnel.ts  (tls1-cases.md 배정 "1")
  │   ├ [TLS-1b] 터널 견고성: half-close, 대용량, 연결 타임아웃, 동시 300개, 종료   ✅  → src/tls/tunnel.ts  (배정 "1b". 2026-11-07 TLS-1에서 나눔 — 작은 기능 추가)
  │   ├ [TLS-2] 루트 CA 생성·보관 ⚠ 개인키 보호                          ✅  → src/ca/ca.ts  (tls2-cases.md 배정 "2")
  │   ├ [TLS-2b] CA 보관 견고성: 원자적 쓰기, 동시 실행, 심어 둔 링크, 키 파일 ACL   ✅  → src/ca/ca.ts  의존: TLS-2  (배정 "2b". 2026-11-08 TLS-2에서 나눔 — 작은 기능 추가)
  │   ├ [TLS-3] 호스트별 인증서 즉석 발급                                 ✅  → src/ca/ca.ts  의존: TLS-2  (tls3-cases.md 배정 "3")
- │   ├ [TLS-4] TLS 종료 후 복호화한 요청을 Flow로 기록                   🔨  → src/tls/mitm.ts  의존: TLS-1, TLS-3  (tls4-cases.md 배정 "4")
+ │   ├ [TLS-4] TLS 종료 후 복호화한 요청을 Flow로 기록                   ✅  → src/tls/mitm.ts  의존: TLS-1, TLS-3  (tls4-cases.md 배정 "4")
  │   └ [TLS-4b] 복호화 견고성: 핸드셰이크 타임아웃·비TLS·h2, 파이프라이닝·Upgrade, 캐시 상한·만료, 실패 원인 세부   ⬜  → src/tls/  의존: TLS-4  (배정 "4b". 2026-11-08 TLS-4에서 나눔 — 작은 기능 추가)
  ├ [STO] 저장소 — 왜: 지나간 요청을 다시 보고 화면에 전달해야 함         ⬜  → src/store/  의존: PRX-2
  ├ [UI] 대시보드 — 왜: 목록 + 상세 + 필터를 실시간으로 보기              ⬜  → src/dashboard/  의존: STO

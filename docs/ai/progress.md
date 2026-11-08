@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-4] TLS 종료 후 복호화한 요청 기록 (feat/TLS-4) — **멈춤: 테스트 결함 4건 보고, 사용자 결정 대기**. 아래 "[TLS-4] 계획".
+- 작업: [TLS-4] 완료(main에 병합). 다음: TLS-4b(복호화 견고성) → TLS 큰 단위 끝 절차.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -615,6 +615,16 @@
   - 고치려면 사용자가 "테스트 수정 허용"을 입력해야 한다. TLS-T는 큰 단위 테스트라 고치는 내용을 보고서 결정 항목에도 올린다.
 - 이 PR 안에서 고친 구현 결함 2개: 이름이 여러 주소로 풀릴 때 첫 주소만 시도(TLS-T가 unreachable — 이 PC에서 localhost → ::1, 127.0.0.1) → 검사한 주소들을 차례로 시도(ac93999·336cb13). 클라이언트가 인증서를 거부해도 서버 쪽 오류 이벤트가 없어 기록이 비던 것 → 핸드셰이크 완료 여부로 판정(808f96f).
 - hook 기록(O25): 구현 스크립트(heredoc)와 같은 명령에서 테스트를 돌리려다 막힘 2회 → 의도한 보수적 동작. 수정 스크립트를 파일로 쓰고 명령을 나눔.
+- 재개(2026-11-08): 사용자가 "테스트 수정 허용" 입력 → 결함 4건을 고침(9d8a528, 원래 값·이유는 커밋 메시지). TLS-T(큰 단위 테스트)도 고쳤다 → TLS 보고서 결정 항목.
+- 전체 테스트에서 TLS-3 E45가 "20개 동시 52ms"로 실패(병렬 실행 부하) → 사용자 결정(2026-11-08) "기준선을 빼고 판정" → b1334f4.
+- 실측 (명령 원문, 결과 전문은 각 커밋 메시지):
+  - E95·E96·E97·E98 일치(f049895): `node scripts/probe/tls4-node.mjs` → head 1604바이트로 핸드셰이크, keep-alive 3개, 검증 명시 없이는 NODE_TLS_REJECT_UNAUTHORIZED=0이 만료·자체 서명·가짜 목적지의 본문을 통과시킴, 오류 코드 CERT_HAS_EXPIRED·DEPTH_ZERO_SELF_SIGNED_CERT·ERR_TLS_CERT_ALTNAME_INVALID·UNABLE_TO_VERIFY_LEAF_SIGNATURE.
+  - E100 일치(752437d): stub에서 16개 모두 assertion 실패, 오류 0(처음엔 TypeError가 섞여 상태 확인 assertion을 먼저 두도록 고침 — 커밋 전).
+  - E101 일치(b1334f4 뒤): `npm test` → 510 / 510 통과 / 실패 0 / **큰 단위 대기 0**.
+  - E99 일치(대체 경로, 8f32bb5): `node scripts/probe/tls4-curl.mjs` → curl --cacert만으로는 "(60) schannel: the revocation status is unknown", --ssl-no-revoke면 example.com 200. 믿을 수 없는 로컬 목적지는 502.
+- 계획과 달라진 점: cli.ts의 formatSummary는 바꾸지 않음(https 기록도 지금 모양으로 충분). 구현 결함 2개를 이 PR 안에서 고침(주소 목록, 핸드셰이크 판정). 테스트 결함으로 멈췄다 재개. 실측 스크립트 3개 추가(tls4-test-defects, tls4-curl, tls4-curl-revoke).
+- TLS-4b에 넘길 것: 불투명 터널의 첫 주소만 연결(범위 밖 기록), 핸드셰이크 뒤 클라이언트가 끊은 CONNECT 기록에 오류 코드가 없음(curl 실측 1번), 배정 "4b" 전부, B4(SNI가 IP). SEC-3에 넘길 것: 폐기 확인(CRL·OCSP 없음 — curl은 --ssl-no-revoke 필요), 실제 브라우저(H1·H4).
+- [TLS-4] 완료: 232991f..(문서 커밋). 다음: TLS-4b.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
