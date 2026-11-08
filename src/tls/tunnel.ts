@@ -132,41 +132,50 @@ export async function openTunnel(o: {
   const checked = await checkConnect(o);
   if ('refuse' in checked) return refuse(checked.refuse.status, checked.refuse.message, checked.refuse.error);
   if ('aborted' in checked) return finish({ error: failure ?? { by: 'client', code: 'aborted' } });
-  const { port, address } = checked.ok;
+  const { port, addresses } = checked.ok;
 
-  // 결정 6(사례 R6): 반쪽 닫기를 허용한다. 기본값(false)이면 목적지의 FIN을 받는 순간 목적지 쪽 쓰기도 닫혀서
-  // 클라이언트가 그 뒤 보낸 바이트가 목적지에 닿지 않고, pipe가 풀려 클라이언트 쪽 소켓과 기록이 남는다 [확인됨: scripts/probe/tls1b-leak.mjs]
-  const up = o.connect({ host: address, port, allowHalfOpen: true });
-  upstream = up;
-  o.track(up);
+  // [TLS-4b] 검사한 주소들을 차례로 시도한다. 이 PC에서 localhost는 ::1, 127.0.0.1 순서로 풀려서 첫 주소만 쓰면
+  // 127.0.0.1에만 열린 목적지에 닿지 못했다(TLS-4에서 발견). 연결 거부·도달 불가일 때만 다음 주소로 — 타임아웃은 다시 시도하지 않는다(R8)
+  const RETRY = new Set(['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL', 'EAFNOSUPPORT']);
   let bytesUp = 0;
   let bytesDown = 0;
   let closed = 0;
+  let address = addresses[0];
   const onClose = () => ++closed === 2 && finish({ error: failure, tunnel: { bytesUp, bytesDown, address } });
 
-  up.setTimeout(o.connectTimeoutMs, () => up.destroy(Object.assign(new Error('timeout'), { code: 'SUMUN_CONNECT_TIMEOUT' })));
-  up.on('error', (err: NodeJS.ErrnoException) => {
-    if (!established) {
-      const timeout = err.code === 'SUMUN_CONNECT_TIMEOUT';
-      return refuse(timeout ? 504 : 502, timeout ? '목적지 서버가 응답하지 않습니다.' : '목적지 서버에 연결할 수 없습니다.', { by: 'upstream', code: timeout ? 'timeout' : 'unreachable', status: timeout ? 504 : 502 });
-    }
-    // 사례 R11: 200을 보낸 뒤 목적지가 끊으면 클라이언트도 RST로 끊는다. 정상 종료(FIN)로 닫으면 잘린 데이터를 완전한 것으로 오인한다
-    fail({ by: 'upstream', code: 'aborted' });
-    if (!socket.destroyed) socket.resetAndDestroy();
-  });
-  up.once('connect', () => {
-    if (socket.destroyed) return up.destroy();
-    established = true;
-    up.setTimeout(0); // 결정 7: 연결된 뒤에는 유휴로 끊지 않는다 (R9)
-    // 사례 R4: 연결이 성공한 뒤에만, 상태 줄만(Content-Length·Transfer-Encoding 없음 — RFC 9110 9.3.6 MUST NOT)
-    socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    // 사례 R1: CONNECT와 같은 write로 온 바이트는 head로만 온다. 버리면 잃는다 [확인됨: scripts/probe/tls1-head.mjs]
-    if (o.head.length) (up.write(o.head), (bytesUp += o.head.length));
-    socket.on('data', (d: Buffer) => (bytesUp += d.length));
-    up.on('data', (d: Buffer) => (bytesDown += d.length));
-    socket.pipe(up);
-    up.pipe(socket);
-    socket.on('close', onClose);
-    up.on('close', onClose);
-  });
+  const attempt = (i: number) => {
+    address = addresses[i];
+    // 결정 6(사례 R6): 반쪽 닫기를 허용한다. 기본값(false)이면 목적지의 FIN을 받는 순간 목적지 쪽 쓰기도 닫혀서
+    // 클라이언트가 그 뒤 보낸 바이트가 목적지에 닿지 않고, pipe가 풀려 클라이언트 쪽 소켓과 기록이 남는다 [확인됨: scripts/probe/tls1b-leak.mjs]
+    const up = o.connect({ host: address, port, allowHalfOpen: true });
+    upstream = up;
+    o.track(up);
+    up.setTimeout(o.connectTimeoutMs, () => up.destroy(Object.assign(new Error('timeout'), { code: 'SUMUN_CONNECT_TIMEOUT' })));
+    up.on('error', (err: NodeJS.ErrnoException) => {
+      if (!established) {
+        if (RETRY.has(err.code ?? '') && i + 1 < addresses.length && !socket.destroyed) return attempt(i + 1);
+        const timeout = err.code === 'SUMUN_CONNECT_TIMEOUT';
+        return refuse(timeout ? 504 : 502, timeout ? '목적지 서버가 응답하지 않습니다.' : '목적지 서버에 연결할 수 없습니다.', { by: 'upstream', code: timeout ? 'timeout' : 'unreachable', status: timeout ? 504 : 502 });
+      }
+      // 사례 R11: 200을 보낸 뒤 목적지가 끊으면 클라이언트도 RST로 끊는다. 정상 종료(FIN)로 닫으면 잘린 데이터를 완전한 것으로 오인한다
+      fail({ by: 'upstream', code: 'aborted' });
+      if (!socket.destroyed) socket.resetAndDestroy();
+    });
+    up.once('connect', () => {
+      if (socket.destroyed) return up.destroy();
+      established = true;
+      up.setTimeout(0); // 결정 7: 연결된 뒤에는 유휴로 끊지 않는다 (R9)
+      // 사례 R4: 연결이 성공한 뒤에만, 상태 줄만(Content-Length·Transfer-Encoding 없음 — RFC 9110 9.3.6 MUST NOT)
+      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+      // 사례 R1: CONNECT와 같은 write로 온 바이트는 head로만 온다. 버리면 잃는다 [확인됨: scripts/probe/tls1-head.mjs]
+      if (o.head.length) (up.write(o.head), (bytesUp += o.head.length));
+      socket.on('data', (d: Buffer) => (bytesUp += d.length));
+      up.on('data', (d: Buffer) => (bytesDown += d.length));
+      socket.pipe(up);
+      up.pipe(socket);
+      socket.on('close', onClose);
+      up.on('close', onClose);
+    });
+  };
+  attempt(0);
 }
