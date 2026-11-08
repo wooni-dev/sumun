@@ -3,7 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 세션 종료(2026-11-08 밤 늦게). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 783개 모두 통과, 실패 0, 대기 0(0517b6b 코드 기준 — 그 뒤는 문서·실측 스크립트만).
+- 2026-11-08 밤(/clear 뒤 세션): **UI 큰 단위 끝 1~4단계 끝, 사용자 답 대기**(`docs/for-me/UI-report.md` 결정 1~22). 아래 [UI] 큰 단위 끝 절. 답이 오면 승인 기록 → (추천대로면) UI-6.
+- 지난 세션 종료(2026-11-08 밤 늦게). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 783개 모두 통과, 실패 0, 대기 0(0517b6b 코드 기준 — 그 뒤는 문서·실측 스크립트만).
   - 이번 세션(/clear 뒤)에 끝낸 것: [UI-4](실시간 통로 SSE, 느린 구독자 판정 수정 933474f) → [UI-5](화면, UI-T 대기 풀림, E190 불일치 — 확장 탭 403·헤더 latin1) → [UI-5b](미리보기·압축·저장, 검토 사례 ui5b-cases P1~P19, CSP 그대로, E193 불일치 — 메모리 +301MB·favicon 404).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨 확인 대기**(UI-T·UI-1~5·UI-2b·UI-5b 모두 ✅), SEC은 SEC-3 ✅.
   - **다음 세션 첫 일: UI 큰 단위 끝**(아래 3번 순서). 보고서 결정 항목은 `docs/for-me/UI-2.md`·`UI-2b.md`·`UI-3.md`·`UI-4.md`·`UI-5.md`·`UI-5b.md`의 "UI 보고서에 올릴 결정"과 아래 목록을 모은다. 실측(O52): 평문·HTTPS(사용자 CA 등록 뒤)·닫힌 포트 경로를 실제 브라우저로, **사용자가 터미널 주소를 직접 눌러 열리는지**(브라우저가 연 탭은 none·200 — E194), 브라우저 loopback 프록시 예외.
@@ -1401,6 +1402,9 @@
 - 한 줄 보고: 목표 = UI 큰 단위를 끝내고 보고서로 사용자 확인을 받는다 / 범위 = `docs/ai/progress.md`, `docs/method-feedback.md`(감사 기록·O55~O61), 새 `docs/for-me/UI-report.md`, 새 `scripts/probe/ui-report/browser.mjs`(O52 실측), 새 `scripts/probe/ui-final-review/`(검토 에이전트 스크립트) / 하지 않을 것 = 코드·테스트 수정, Windows 인증서 저장소 변경, UI ✅ 표시(보고서 승인 뒤, O37).
 - 1 전체 테스트 [확인됨]: e8e5a9d에서 `timeout 400 npm test` → tests 783 / pass 783 / fail 0 / todo 0, 78초.
 - 2 감사: method-auditor에 "UI"만 넘김 → `docs/method-feedback.md` "[UI] 큰 단위 감사". 하위 노드 8개 ✅, 경미 5건, 관찰 O55~O61. 경미 ②는 [UI-5b] "계획과 달라진 점"에 보탰다.
+- 3 검토 에이전트(새 컨텍스트, 목표 문서·src·test·scripts·package.json만): 일치 12, 부분 확인 1(실제 CA + 일반 브라우저 HTTPS — 저장소 변경 금지로 못 봄), 위험 6(R1 중간 — 필터 중 알림이 0.3초 안에 이어지면 필터 목록이 멈춤, R2~R6 낮음). 스크립트 `scripts/probe/ui-final-review/`. R1·R5는 내가 `timeout 300 node scripts/probe/ui-final-review/browser.mjs`로 다시 확인 [확인됨: 4초 동안 "19건" → 끝난 뒤 1초 "43건", favicon 404]. 검토 에이전트의 첫 `npm test`는 자기 실측과 겹쳐 TLS-3 E45(시간 민감) 1건 실패, 두 번째 783/783 — 마지막 전체 실행 기록은 실패 0.
+- O52 실측(내가): `timeout 180 node scripts/probe/ui-report/browser.mjs` — 평문·HTTPS 복호화(임시 CA, `--ignore-certificate-errors`)·닫힌 포트·실시간·필터·지우기·다른 출처·리바인딩·Via·프록시 경유 모두 기대대로. 새로 확인: Chrome은 `--proxy-server`만 주면 127.0.0.1·localhost를 프록시로 보내지 않음(기록 0 → 0), 다른 출처 링크의 403 문구가 원인과 안 맞음. 스크립트 결함 두 번(동기 curl `err:000`, Chrome 배경 요청 섞임)을 고쳐 세 번째 실행 결과를 씀.
+- 4 보고서: `docs/for-me/UI-report.md` — 결정 항목 1~22. 추천: R1·R3·R4·R5·R6·loopback 안내·403 문구를 **UI-6**에서 고치고, 사용자와 함께 실제 CA로 최종 확인(결정 10) 뒤 UI ✅.
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
