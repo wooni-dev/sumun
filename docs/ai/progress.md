@@ -3,9 +3,9 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: 세션 종료(2026-11-08). 사용자가 "다음 세션에서 진행". main = d642a81 + 이 기록 커밋. `npm test` 523/523, 실패 0, 대기 0.
-- **다음 세션 첫 일: `docs/for-me/TLS-report.md`의 사용자 답 받기**(결정 항목 18건, 방식 보정 O39~O46). 답을 보고서 머리와 method-feedback.md 승인 상태에 적는다.
-  - 승인되면 순서: ① TLS-4c(결정 1·2: 복호화 터널 안 유휴·느린 헤더 연결이 안 닫힘 — `scripts/review/tls/review-idle.ts`로 재현, 인증서 오류 분류를 목록 밖 코드까지) → ② TLS ✅(O37) → ③ INFRA-10(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
+- 작업: [TLS-4c] 복호화 터널 안 헤더 제한·인증서 분류 (feat/TLS-4c). 아래 "[TLS-4c] 계획". TLS 보고서 승인됨(2026-11-08, 보고서 머리).
+  - 세션 시작 대조(2026-11-08): main = 00248ae, `npm test` 523/523, 실패 0, 대기 0 [확인됨] — 기록과 일치.
+  - 순서: ① TLS-4c(결정 1·2: 복호화 터널 안 유휴·느린 헤더 연결이 안 닫힘 — `scripts/review/tls/review-idle.ts`로 재현, 인증서 오류 분류를 목록 밖 코드까지) → ② TLS ✅(O37) → ③ INFRA-10(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
   - 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로(`[TLS]`로 하면 check-method가 작은 단위로 판정 — d642a81 보고서 실행 증거 5).
   - 커밋 메시지는 Write 도구로 파일에 쓰고 `git commit -F`(hook이 리다이렉트+테스트 경로를 막음, 의도한 보수적 동작 — O45 후보).
 - 범위 밖으로 남은 것(보고서 '자세히 볼 부분'): 테스트 코드가 .claude/state/에 쓸 수 있는 빈틈(INFRA-9 사례 12), PRX-2 F6이 %LOCALAPPDATA%\sumun을 보지 않음, OS 연결 대기열 232개, curl --ssl-no-revoke.
@@ -661,6 +661,26 @@
 - 계획과 달라진 점: 범위에 도우미 `test/tls/_mitm.ts`(b8913fb)를 적지 않았다(O11 — TLS 감사에서 지적). 결정 9를 tls.upstreamError로(계획대로). 테스트로 만들지 않은 4b 사례 A4·A6·B7·C6·F1·F2(이유는 b8913fb) → TLS 보고서 결정 항목(O28). 핸드셰이크 뒤 클라이언트가 요청 없이 끊는 CONNECT 기록(curl 폐기 확인 실패)은 오류 없이 남는 그대로 — 브라우저 사전 연결과 구별할 수 없어 바꾸지 않음 [추측] → 보고서에.
 - [TLS-4b] 완료: 4568edc..(문서 커밋).
 
+### [TLS-4c] 계획
+- 사용자 승인(2026-11-08): TLS 보고서 결정 1~18 모두 추천대로, O39~O46 모두 승인 → 보고서 머리, `docs/method-feedback.md` 승인 표(이 커밋). 결정 1·2 = 이 단위.
+- 미확인 항목(O13): 변화 없음. 남은 셋(ai-research Read 규칙, Ctrl+C 종료, 예약 포트 EACCES)은 모두 세션 밖 조건이 필요하다.
+- 보안 사례(O10): 별도 컨텍스트 검토 에이전트 → `docs/ai/tls4c-cases.md`(I1~I16, K1~K14, C1~C17, R1~R6). 해결안은 알려 주지 않았다. 사용자 결정 D-1~D-5 모두 추천대로(같은 문서).
+- 한 줄 보고: 목표 = 복호화 터널 안에서도 평문과 같은 헤더 제한(유휴·느린 헤더 연결을 h 안에 408로 닫음), 목적지 인증서 검증 실패를 코드 목록과 상관없이 `bad-certificate`로 / 범위 =
+  - `src/tls/mitm.ts`: `openMitm()` — 안쪽 서버에 연결을 넘기는 시점, 요청 없이 시간 초과로 닫힌 터널의 CONNECT 기록 `client timeout`
+  - `src/proxy/server.ts`: `startProxy()`의 안쪽 서버(inner) 헤더 제한이 실제로 돌게, inner `clientError`에서 시간 초과면 408. `handle()`의 목적지 오류 분류(인증서 검증 실패 판정을 `CERT_ERRORS` 목록 밖까지)
+  - 새 `test/tls/TLS-4c.test.ts`(새 동작), 새 `test/tls/TLS-4c-regression.test.ts`(구현 전에도 통과해야 정상), 필요하면 새 도우미 `test/tls/_tls4c.ts`(시험 인증서는 이미 의존성인 node-forge로 만든다 — package.json 변경 없음)
+  - 새 `scripts/probe/tls4c-*.mjs`(원인·분류 실측, 실제 클라이언트), 새 `scripts/probe/tls4c-review/`(검토 에이전트 실험 스크립트 6개를 경로만 바꿔 옮김)
+  - `docs/ai/tls4c-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/TLS-4c.md`, `docs/for-me/TLS-report.md`, `docs/method-feedback.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 본문·역방향 압력 제한(D-3), 파이프라이닝 동작 변경(D-4), 인증서 오류 문구 기록(D-5), CONNECT 단계 이름 해석·발급 시간 제한(R6, 범위 밖), 기존 테스트 파일 수정, Windows 저장소·브라우저(SEC-3)
+- 예상 [추측] (판정 기준 포함):
+  - E110 원인: 안쪽 http 서버는 listen하지 않아서 Node의 연결 검사(headersTimeout을 재는 주기 타이머)가 시작되지 않는다. 판정: 실측에서 ① 지금 그대로면 h=500일 때 "핸드셰이크 뒤 무요청"과 "헤더 반쪽"이 3초 안에 닫히지 않고 ② 안쪽 서버에 `'listening'`을 직접 emit해 검사를 켜면 둘 다 연결 뒤 1500ms 안에 닫히면 일치. ②가 안 닫히면 원인 가설이 틀린 것이다.
+  - E111: ②의 상태에서 클라이언트는 408을 받지 못하고 그냥 끊긴다(지금 inner `clientError` 처리기가 소켓을 바로 닫으므로). 판정: 닫힐 때까지 받은 응답 바이트가 0이면 일치.
+  - E112: ②의 상태에서 h=1이면 Node 검사가 TLS 핸드셰이크 도중 연결을 끊는다(안쪽 서버에 핸드셰이크 전에 연결을 넘기므로 — K10). 판정: 클라이언트 핸드셰이크가 실패하면 일치.
+  - E113 분류: Node는 인증서 검증으로 실패시킬 때 목적지 TLS 소켓의 `authorizationError`에 오류 코드를 남긴다. 판정: 인증서 사례(만료·자체 서명·이름 불일치·모르는 CA, C2 critical 확장, C3 SHA-1, C4 RSA 1024)에서 모두 `authorizationError === err.code`이고, 반대 사례(C12 TLS 1.3 클라이언트 인증서 요구, C14 RST)에서는 비어 있으면 일치.
+  - E114: 새 동작 테스트는 지금 구현(main 00248ae)에서 모두 assertion 실패, 오류 0. 회귀 테스트는 모두 통과. 판정: 실패 수 = 새 동작 테스트 수, 오류 0, 회귀 실패 0.
+  - E115: 구현 뒤 `npm test` 실패 0, 큰 단위 대기 0. 판정: 둘 다.
+  - E116 실제 클라이언트(O31): `openssl s_client -proxy 127.0.0.1:<포트>`로 복호화 터널에 핸드셰이크만 하고 기다리면, h=2000인 프록시가 연결 뒤 3500ms 안에 닫고 클라이언트 출력에 `408`이 보인다. 기존 curl 실측(`scripts/probe/tls4-curl.mjs`)은 그대로 200·502. 판정: 둘 다면 일치.
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
@@ -676,6 +696,8 @@
 - ⚠ [TLS-1b 발견, 범위 밖 — 환경] 이 PC는 한순간에 몰린 TCP 연결을 약 232개만 받고 나머지는 ECONNREFUSED. 프록시의 대기 포트도 같다. backlog를 올려도 늘지 않는다 [확인됨: scripts/probe/tls1b-backlog.mjs] [추측: Windows 대기열 상한]. 브라우저는 한순간에 수백 개를 열지 않으므로 지금은 다루지 않는다.
 
 - ⚠ [TLS-4 발견, 범위 밖 — TLS-1 결함] 불투명 터널(openTunnel)은 검사한 주소 중 **첫 주소에만** 연결한다. 이 PC에서 `localhost`는 `::1`, `127.0.0.1` 순서로 풀리므로, 127.0.0.1에만 열린 서버로 `CONNECT localhost:P`를 하면 502가 난다 [추측: TLS-1 테스트는 lookup을 주입해 드러나지 않았다. 복호화 쪽은 TLS-4에서 주소들을 차례로 시도하게 고침]. 제안: TLS-4b에서 터널도 같은 방식으로.
+
+- ⚠ [TLS-4c 검토 발견, 범위 밖 — R6] CONNECT 단계의 이름 해석(`checkConnect`)과 인증서 발급(`certs.get`)에는 시간 제한이 없다. 해석이 멈추면 200을 보내기 전의 소켓이 무기한 남는다 [추측: 코드 근거, 실행 안 함]. 제안: 다음 TLS 관련 작은 단위나 SEC 단계에서 시간 제한을 검토.
 
 ## 시도하다 막힌 것
 (없음)
