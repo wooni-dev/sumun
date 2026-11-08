@@ -9,7 +9,7 @@
   - 미확인(세션 밖, 남음): Edge·Firefox·Windows 시스템 프록시 설정 → SEC 큰 단위.
   - 지금 루트 CA는 **등록 안 됨**(2026-11-09 사용자 해제).
   - 다음: INFRA(O55~O61을 CLAUDE.md·check-method에) → UI-7(필터 0건 안내) → SEC 큰 단위.
-- 2026-11-09: **[UI-7] 진행 중** — 호스트 필터 0건 안내(결정 23). 계획은 아래 "[UI-7] 계획".
+- 2026-11-09: **[UI-7] 구현·문서 끝** — 호스트 필터 0건 안내(결정 23). E203~E205 일치, `npm test` 816/816. 계획·실측은 아래 "[UI-7] 계획", 설명은 `docs/for-me/UI-7.md`.
 - [INFRA-14] 완료: 57b4233([RULE])·1ad5b5f..fb00127, 병합 9b19774. `node scripts/check-method.mjs --id INFRA-14`(9b19774) → 10개 ✅, tree-updated ➖(INFRA), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: UI-7(필터 0건일 때 "도메인 전체를 넣으세요" 안내, UI 보고서 결정 23) → SEC 큰 단위.
 - 2026-11-09: **[INFRA-14] 구현·문서 끝** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) → check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). E199~E201 일치, E202 [탐색] UI-1 E172 하나. `npm test` 809/809. 자세히는 아래 "[INFRA-14] 계획"과 `docs/for-me/INFRA-14.md`.
 - 세션 종료(2026-11-08 자정 무렵). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 796개 모두 통과, 실패 0, 대기 0(4ecb95d 코드 기준, 두 번 — 그 뒤는 실측 스크립트·문서만).
@@ -1506,6 +1506,14 @@
   - E203: stub(view.js 끝에 `emptyFilterHint`가 늘 ''를 돌려줌, app.js 그대로)에서 `npm run test:red -- test/ui/UI-7.test.ts` → 새 동작 테스트 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-7-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
   - E204: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0. 판정: 둘 다면 일치.
   - E205(O31, 실제 브라우저 = headless Chrome, `scripts/probe/ui7-browser.mjs`, 저장소에 example.com·www.example.com 기록을 넣은 대시보드): 호스트 `example` 적용 → "필터 결과 0건"이고 목록 아래에 안내 문구가 보임 / `example.com` 적용 → 2건 이상, 안내 없음 / 필터 끄기 → 안내 없음. 판정: 셋 다면 일치.
+- 실측 (명령 원문):
+  - E203 일치(4da170f 커밋 전, stub = view.js에 늘 ''를 돌려주는 emptyFilterHint): `npm run test:red -- test/ui/UI-7.test.ts` → tests 5 / fail 5, 모두 AssertionError, 오류 0. `npm test -- test/ui/UI-7-regression.test.ts` → 2 / 2.
+  - 중간(540bcc0, view.js): `npm test -- test/ui/UI-7.test.ts` → 5 중 4, 1 실패(다음 커밋 필요 — app.js). c996f2d: `npm test -- test/ui/UI-7.test.ts test/ui/UI-7-regression.test.ts test/ui/UI-5.test.ts test/ui/UI-6.test.ts` → 33 / 33.
+  - E204 일치(c996f2d): `npm test`(전체) → tests 816 / pass 816 / fail 0 / todo 0, 종료 코드 0.
+  - E205 일치(c996f2d, 스크립트 6943f25): `node scripts/probe/ui7-browser.mjs` → Chrome/156.0.8078.80, 저장소 호스트 example.com·www.example.com·www.example.com → ① `example` → "필터 결과 0건", 목록 0줄, 아래 "호스트는 도메인 전체로 찾습니다. 예: example.com을 넣으면 www.example.com 같은 하위 도메인도 함께 나옵니다. 이름 일부(example)로는 찾지 않습니다." ② `example.com` → "필터 결과 3건", 안내 없음 ③ 필터 끄기 → "3건", 안내 없음.
+  - 추가 실측(계획 밖, O60): 같은 스크립트 ④ `example` 적용 뒤 칸만 `example.com`으로 바꾸고 적용하지 않음 → 0건·안내 그대로(적용된 조건 기준, 설계대로).
+- hook이 막은 것: stub을 `Add-Content`로 붙이면서 같은 명령에 테스트 경로(`test/ui/UI-7.test.ts`)를 함께 써서 "테스트 수정"으로 막힘 — 의도한 보수적 동작(O45와 같은 종류). Edit 도구로 stub을 넣고 명령을 나눴다.
+- 계획과 달라진 점: 없음.
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
