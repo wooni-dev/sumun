@@ -240,3 +240,145 @@ export function createModel({ maxRows = 10000 } = {}) {
   };
   return model;
 }
+
+
+// ---------------------------------------------------------------------------
+// [UI-5b] 미리보기·압축 풀기·내려받기. 사례·설계: docs/ai/ui5b-cases.md(P1~P19, Q1~Q13, B-1~B-7)
+// 화면은 blob:·data: URL을 만들지 않는다(B-1 — 최상위로 열린 blob 문서는 대시보드 출처에서 스크립트가 돈다, P1).
+// 그래서 CSP를 바꾸지 않고, 이미지는 createImageBitmap → canvas로 그린다(app.js). 여기서는 그 전에 볼 것만 판정한다.
+
+const ascii = (b, i, s) => i + s.length <= b.length && [...s].every((c, k) => b[i + k] === c.charCodeAt(0));
+const u16be = (b, i) => (b[i] << 8) | b[i + 1];
+const u16le = (b, i) => b[i] | (b[i + 1] << 8);
+const u24le = (b, i) => b[i] | (b[i + 1] << 8) | (b[i + 2] << 16);
+const u32be = (b, i) => ((b[i] << 24) >>> 0) + ((b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]);
+const i32le = (b, i) => b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24);
+
+// B-2, P2: 매직 바이트만 본다. 기록의 Content-Type은 공격자가 고른다. SVG·HTML·AVIF·ICO는 미리보기 대상이 아니다
+export function sniffImage(b) {
+  if (b.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((x, k) => b[k] === x)) return 'png';
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+  if (ascii(b, 0, 'GIF87a') || ascii(b, 0, 'GIF89a')) return 'gif';
+  if (b.length >= 12 && ascii(b, 0, 'RIFF') && ascii(b, 8, 'WEBP')) return 'webp';
+  if (b.length >= 26 && ascii(b, 0, 'BM')) return 'bmp';
+  return null;
+}
+
+// JPEG: SOS 전의 모든 SOF 중 가장 큰 크기(작은 프레임 뒤에 큰 프레임을 숨기는 속임 — P4)
+const SOF = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+function jpegSize(b) {
+  let i = 2;
+  let w = 0;
+  let h = 0;
+  while (i < b.length) {
+    if (b[i] !== 0xff) break;
+    while (b[i] === 0xff) i++;
+    const m = b[i++];
+    if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) continue;
+    if (m === 0xda || m === 0xd9 || i + 2 > b.length) break;
+    const len = u16be(b, i);
+    if (len < 2) break;
+    if (SOF.has(m) && i + 7 <= b.length) {
+      h = Math.max(h, u16be(b, i + 3));
+      w = Math.max(w, u16be(b, i + 5));
+    }
+    i += len;
+  }
+  return w && h ? { width: w, height: h } : null;
+}
+
+// 디코드하지 않고 머리에서 가로·세로를 읽는다. 못 읽으면 null
+export function imageSize(b) {
+  const type = sniffImage(b);
+  if (type === 'png') return b.length >= 24 && ascii(b, 12, 'IHDR') ? { width: u32be(b, 16), height: u32be(b, 20) } : null;
+  if (type === 'gif') return b.length >= 10 ? { width: u16le(b, 6), height: u16le(b, 8) } : null;
+  if (type === 'bmp') return { width: Math.abs(i32le(b, 18)), height: Math.abs(i32le(b, 22)) };
+  if (type === 'jpeg') return jpegSize(b);
+  if (type === 'webp') {
+    if (ascii(b, 12, 'VP8X') && b.length >= 30) return { width: 1 + u24le(b, 24), height: 1 + u24le(b, 27) };
+    if (ascii(b, 12, 'VP8L') && b.length >= 25 && b[20] === 0x2f) {
+      const [b1, b2, b3, b4] = [b[21], b[22], b[23], b[24]];
+      return { width: 1 + (b1 | ((b2 & 0x3f) << 8)), height: 1 + ((b2 >> 6) | (b3 << 2) | ((b4 & 0x0f) << 10)) };
+    }
+    if (ascii(b, 12, 'VP8 ') && b.length >= 30 && b[23] === 0x9d && b[24] === 0x01 && b[25] === 0x2a) return { width: u16le(b, 26) & 0x3fff, height: u16le(b, 28) & 0x3fff };
+  }
+  return null;
+}
+
+// B-3, P4: 디코드 전에 판정한다. 5천만 픽셀 ≈ RGBA 200MB(사진 8000×6000은 됨, 20000×20000 픽셀 폭탄은 안 됨 — Q8)
+export function previewDecision(b, maxPixels = 50_000_000) {
+  const type = sniffImage(b);
+  if (!type) return { ok: false, reason: 'not-image' };
+  const s = imageSize(b);
+  if (!s || !s.width || !s.height) return { ok: false, reason: 'unknown-size' };
+  if (s.width * s.height > maxPixels) return { ok: false, reason: 'too-large' };
+  return { ok: true, type, width: s.width, height: s.height };
+}
+
+// B-4, Q5·Q13: Content-Encoding 줄을 모두 쉼표로 잇고, 소문자로 나눠 identity·빈 값을 뺀다(적용된 순서 그대로)
+export function contentEncodings(headers) {
+  return headerValues(headers, 'content-encoding')
+    .join(',')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s && s !== 'identity');
+}
+
+// B-4, P6·P8: 정확히 한 층만 푼다. Chrome의 DecompressionStream은 gzip·deflate·deflate-raw뿐(br·zstd 없음)
+export function decompressPlan(encodings) {
+  if (!encodings.length) return { format: null, reason: 'none' };
+  if (encodings.length > 1) return { format: null, reason: 'layered' };
+  const e = encodings[0];
+  if (e === 'gzip' || e === 'x-gzip') return { format: 'gzip' };
+  if (e === 'deflate') return { format: 'deflate' };
+  return { format: null, reason: 'unsupported' };
+}
+
+// B-5, P5·P7: 조각마다 읽고 합계가 max를 넘으면 그 자리에서 멈춘다(Response.arrayBuffer()는 중간에 멈출 수 없다).
+// 오류(잘림·찌꺼기·형식 아님)는 throw하지 않고 그때까지 나온 앞부분과 error: true
+async function inflateOnce(bytes, format, max) {
+  const chunks = [];
+  let n = 0;
+  let limitHit = false;
+  let error = false;
+  try {
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(format)).getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (n + value.length > max) {
+        chunks.push(value.subarray(0, max - n));
+        n = max;
+        limitHit = true;
+        reader.cancel().catch(() => {});
+        break;
+      }
+      chunks.push(value);
+      n += value.length;
+    }
+  } catch {
+    error = true;
+  }
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return { bytes: out, limitHit, error };
+}
+// deflate 라벨에 zlib 머리 없는(raw) 본문을 보내는 서버가 있다(Q2, P9): 아무것도 못 풀었으면 deflate-raw로 한 번만 더
+export async function inflate(bytes, format, max = 10 * 1024 * 1024) {
+  if (!bytes.length) return { bytes: new Uint8Array(0), limitHit: false, error: false };
+  const first = await inflateOnce(bytes, format, max);
+  if (format === 'deflate' && first.error && first.bytes.length === 0) {
+    const raw = await inflateOnce(bytes, 'deflate-raw', max);
+    if (!raw.error || raw.bytes.length) return raw;
+  }
+  return first;
+}
+
+// B-6, P13·P15: 저장 이름은 기록과 무관하게 고정. 확장자 .bin(기록 형식에 따라 .htm·.svg가 붙지 않게)
+export function downloadName(id, part) {
+  return Number.isSafeInteger(id) && id >= 0 && (part === 'request' || part === 'response') ? `sumun-${id}-${part}.bin` : 'sumun-body.bin';
+}
