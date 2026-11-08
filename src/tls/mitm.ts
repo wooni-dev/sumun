@@ -52,7 +52,8 @@ export function createCertCache(ca: CA, opts: { max?: number; now?: () => number
 // 터널 안 요청의 목적지. host = CONNECT 이름(소문자, 끝점 제거, IPv6는 [::1]), address = CONNECT 때 검사한 주소
 // addresses = 검사한 주소 전부. localhost가 ::1, 127.0.0.1 순서로 풀리는 것처럼 첫 주소에 목적지가 없을 수 있어 차례로 시도한다
 // [확인됨: 이 PC에서 dns.lookup('localhost', { all: true }) → ::1, 127.0.0.1]
-export type MitmRoute = { host: string; port: number; addresses: string[]; requests: number; sni: () => string | null };
+// timedOut = 안쪽 서버가 헤더 제한으로 닫았다([TLS-4c] — 요청이 없었으면 CONNECT 기록이 client timeout이 된다, 결정 D-1)
+export type MitmRoute = { host: string; port: number; addresses: string[]; requests: number; timedOut?: boolean; sni: () => string | null };
 const ROUTE = Symbol('sumun.mitm.route');
 export const routeOf = (socket: unknown): MitmRoute | undefined => (socket as { [ROUTE]?: MitmRoute } | undefined)?.[ROUTE];
 
@@ -106,12 +107,23 @@ export async function openMitm(o: {
   let timedOut = false;
   // [TLS-4b] 사례 D4: ClientHello를 보내지 않거나 아주 느린 클라이언트가 소켓을 붙잡고 있지 않게
   const timer = setTimeout(() => secured || ((timedOut = true), t.destroy()), o.handshakeTimeoutMs);
-  t.once('secure', () => ((secured = true), clearTimeout(timer)));
+  // [TLS-4c] 안쪽 HTTP 서버에는 핸드셰이크가 끝난 뒤에 넘긴다(https 서버의 'secureConnection'과 같은 시점).
+  // 안쪽 서버의 헤더 시계는 넘겨받은 때부터 센다 — 먼저 넘기면 핸드셰이크 시간이 헤더 제한을 깎아 먹는다 [확인됨: scripts/probe/tls4c-cause.mjs E112 추가 관찰]
+  // once: TLS 1.2 재협상 뒤 'secure'가 다시 와도 두 번 넘기지 않는다(사례 I9)
+  t.once('secure', () => {
+    secured = true;
+    clearTimeout(timer);
+    o.inner.emit('connection', t); // 안쪽 HTTP 서버가 터널 안 요청을 해석한다 [확인됨: E97 keep-alive 3개]
+  });
+  // 핸드셰이크 전에 클라이언트가 끝을 보내면(TLS 1.3에서 우리 인증서를 거부 — 사례 D3) 닫는다. CONNECT로 받은 소켓은 반쯤 닫힌 채 남을 수 있어
+  // 'end' 뒤에 'close'가 저절로 오지 않는다. 전에는 안쪽 서버가 이 일을 했다(핸드셰이크 뒤에 넘기면서 생긴 빈자리)
+  // [확인됨: TLS-4 D3가 이 구현 도중 실패 — 서버 쪽에 'end'만 오고 핸드셰이크 제한(10초)에 닫힘. 디버그 결과는 progress.md TLS-4c 기록]
+  t.once('end', () => secured || t.destroy());
   t.on('error', () => t.destroy()); // 목적지에는 아직 연결하지 않았다
   t.once('close', () => {
     clearTimeout(timer);
     if (route.requests > 0) return finish(undefined);
-    finish(secured ? {} : { error: { by: 'client', code: timedOut ? 'timeout' : 'tls-handshake' } });
+    if (secured) return finish(route.timedOut ? { error: { by: 'client', code: 'timeout' } } : {});
+    finish({ error: { by: 'client', code: timedOut ? 'timeout' : 'tls-handshake' } });
   });
-  o.inner.emit('connection', t); // 안쪽 HTTP 서버가 터널 안 요청을 해석한다 [확인됨: E97 keep-alive 3개]
 }
