@@ -6,10 +6,10 @@
 //   - 실시간은 fetch 스트림으로 읽는 SSE(D-4). 연결마다 hello가 오면 목록을 API로 다시 받는다(UI-4 결정 — 끊긴 동안의 일을 맞춘다)
 //   - 필터가 켜져 있으면 알림마다(묶어서) 필터 목록을 서버에서 다시 받는다. 필터 규칙을 브라우저에 다시 짜지 않는다(저장소 규칙 하나만)
 //   - 오류 문구는 고정이다. 입력이나 기록 내용을 문구에 넣지 않는다(U30)
-//   - 본문은 텍스트·16진으로만 보인다. 이미지 미리보기·압축 풀기·내려받기는 UI-5b
-import { tokenFromHash, showHidden, hostLabel, displayUrl, clip, hexDump, bodyText, headerValues, buildQuery, createSSEParser, createModel } from './view.js';
+//   - 본문은 텍스트·16진. [UI-5b] 래스터 이미지는 버튼으로 canvas 미리보기, 한 층 gzip·deflate는 10MiB까지 풀기, 원본 저장(docs/ai/ui5b-cases.md B-1~B-7)
+import { tokenFromHash, showHidden, hostLabel, displayUrl, clip, hexDump, bodyText, buildQuery, createSSEParser, createModel, previewDecision, contentEncodings, decompressPlan, inflate, downloadName } from './view.js';
 
-const LIMITS = { domRows: 1000, url: 300, value: 4000, title: 8000, text: 256 * 1024, hex: 64 * 1024, pages: 20, idleMs: 45_000 };
+const LIMITS = { domRows: 1000, url: 300, value: 4000, title: 8000, text: 256 * 1024, hex: 64 * 1024, pages: 20, idleMs: 45_000, pixels: 50_000_000, inflate: 10 * 1024 * 1024 };
 const token = tokenFromHash(location.hash);
 const model = createModel();
 const ui = {};
@@ -317,26 +317,83 @@ function kvTable(rows) {
   return t;
 }
 
-// 본문: 받은 바이트를 텍스트·16진으로. 압축된 본문(Content-Encoding)은 16진으로 시작한다(풀기는 UI-5b)
+function button(text) {
+  const b = el('button', '', text);
+  b.type = 'button';
+  return b;
+}
+
+// [UI-5b] 이미지 미리보기(B-1·B-3·B-7): 버튼을 눌렀을 때만, 디코드 전에 크기를 판정하고, createImageBitmap → canvas로 그린다.
+// blob:·data: URL과 <img>를 만들지 않는다(최상위로 열린 blob 문서는 대시보드 출처에서 스크립트가 돈다 — P1). 비트맵은 그린 뒤 바로 닫는다(P4·P17)
+async function drawPreview(holder, bytes, d) {
+  holder.replaceChildren(el('p', 'note', '그리는 중…'));
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([bytes], { type: `image/${d.type}` }));
+  } catch {
+    return void holder.replaceChildren(el('p', 'note', '이미지를 그릴 수 없습니다(형식이 깨졌거나 브라우저가 지원하지 않음).'));
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const box = el('div', 'preview');
+  box.append(el('p', 'note', `기록된 이미지 미리보기 — ${d.type.toUpperCase()} ${d.width}×${d.height}`), canvas);
+  holder.replaceChildren(box);
+}
+
+// [UI-5b] 원본 저장(B-6): 기록 바이트 그대로, 기록과 무관한 고정 이름(.bin)으로, 저장 창(File System Access)에.
+// 링크·blob URL·서버 URL을 쓰지 않는다 — 다운로드 기록에 주소(#t=토큰)가 남지 않고(P14), 형식에 따라 .htm이 붙지 않는다(P13)
+async function saveOriginal(note, id, part, bytes) {
+  if (typeof window.showSaveFilePicker !== 'function') return void (note.textContent = '이 브라우저는 저장 창을 지원하지 않습니다(Chrome·Edge에서 쓸 수 있습니다).');
+  try {
+    const handle = await window.showSaveFilePicker({ suggestedName: downloadName(id, part) });
+    const w = await handle.createWritable();
+    await w.write(bytes);
+    await w.close();
+    note.textContent = '저장했습니다.';
+  } catch (e) {
+    if (e?.name !== 'AbortError') note.textContent = '저장하지 못했습니다.';
+  }
+}
+
+// 본문: 받은 바이트를 텍스트·16진으로. [UI-5b] 한 층의 gzip·deflate는 10MiB까지 풀어 보이고(B-4·B-5), 원본과 푼 결과를 고를 수 있다.
+// br·zstd·여러 겹은 풀지 않고 안내만(오류가 아님 — Q1)
 function bodySection(id, part, msg) {
   const box = el('div');
   const size = el('p', 'note', `본문 ${msg.bodySize}바이트${msg.bodyTruncated ? ' (기록은 앞 1MiB까지)' : ''}`);
   box.append(size);
   if (!msg.bodySize) return box;
-  const enc = headerValues(msg.headers, 'content-encoding').join(', ').trim();
+  const plan = decompressPlan(contentEncodings(msg.headers));
+  const enc = contentEncodings(msg.headers).join(', ');
   const tabs = el('div', 'tabs');
-  const tText = el('button', '', '텍스트');
-  const tHex = el('button', '', '16진');
-  tText.type = tHex.type = 'button';
-  tabs.append(tText, tHex);
+  const tText = button('텍스트');
+  const tHex = button('16진');
+  const tRaw = button('원본');
+  const tInflated = button('푼 결과');
+  const bPreview = button('이미지 미리보기');
+  const bSave = button('원본 저장');
+  tRaw.hidden = tInflated.hidden = bPreview.hidden = true;
+  tabs.append(tText, tHex, tRaw, tInflated, bPreview, bSave);
   const out = el('pre', 'body', '불러오는 중…');
   const info = el('p', 'note', '');
-  box.append(tabs, out, info);
-  let bytes = null;
-  const show = (mode) => {
+  const encInfo = el('p', 'note', '');
+  const preview = el('div');
+  const saveNote = el('p', 'note', '');
+  box.append(tabs, encInfo, out, info, preview, saveNote);
+  let original = null;
+  let inflated = null;
+  let source = 'raw';
+  let mode = 'text';
+  const current = () => (source === 'inflated' && inflated ? inflated : original);
+  const show = () => {
+    const bytes = current();
     if (!bytes) return;
     tText.className = mode === 'text' ? 'on' : '';
     tHex.className = mode === 'hex' ? 'on' : '';
+    tRaw.className = source === 'raw' ? 'on' : '';
+    tInflated.className = source === 'inflated' ? 'on' : '';
     if (mode === 'text') {
       const t = bodyText(bytes, LIMITS.text);
       out.className = 'body';
@@ -348,17 +405,45 @@ function bodySection(id, part, msg) {
       out.textContent = h.text;
       info.textContent = h.truncated ? `앞 ${LIMITS.hex / 1024}KiB만 보입니다.` : '';
     }
+    // 미리보기 판정은 지금 보는 바이트(원본 또는 푼 결과)의 매직 바이트로만(B-2)
+    const d = previewDecision(bytes, LIMITS.pixels);
+    preview.replaceChildren();
+    bPreview.hidden = !d.ok;
+    if (!d.ok && d.reason === 'too-large') preview.append(el('p', 'note', '이미지가 너무 커서(5천만 픽셀 넘음) 미리보기를 하지 않습니다.'));
+    if (!d.ok && d.reason === 'unknown-size') preview.append(el('p', 'note', '이미지 크기를 읽을 수 없어 미리보기를 하지 않습니다.'));
+    bPreview.onclick = d.ok ? () => drawPreview(preview, bytes, d) : null;
   };
-  tText.addEventListener('click', () => show('text'));
-  tHex.addEventListener('click', () => show('hex'));
+  const pick = (m, s) => () => {
+    if (m) mode = m;
+    if (s) source = s;
+    show();
+  };
+  tText.addEventListener('click', pick('text'));
+  tHex.addEventListener('click', pick('hex'));
+  tRaw.addEventListener('click', pick(null, 'raw'));
+  tInflated.addEventListener('click', pick(null, 'inflated'));
+  bSave.addEventListener('click', () => original && saveOriginal(saveNote, id, part, original));
   api(`/api/flows/${id}/body/${part}`)
     .then((r) => (r.ok ? r.arrayBuffer() : null))
-    .then((buf) => {
+    .then(async (buf) => {
       if (!buf) return void (out.textContent = '본문을 불러오지 못했습니다.');
-      bytes = new Uint8Array(buf);
-      const compressed = enc && enc.toLowerCase() !== 'identity';
-      if (compressed) size.textContent += ` — 압축됨(${line(enc, 40)}): 16진으로 보입니다`;
-      show(compressed || bodyText(bytes.subarray(0, 8192)).binary ? 'hex' : 'text');
+      original = new Uint8Array(buf);
+      mode = bodyText(original.subarray(0, 8192)).binary ? 'hex' : 'text';
+      if (plan.format) {
+        const r = await inflate(original, plan.format, LIMITS.inflate);
+        inflated = r.bytes;
+        source = 'inflated';
+        tRaw.hidden = tInflated.hidden = false;
+        mode = bodyText(inflated.subarray(0, 8192)).binary ? 'hex' : 'text';
+        encInfo.textContent = `압축(${line(enc, 40)})을 풀었습니다: ${inflated.length}바이트${r.limitHit ? ' — 10MiB까지만 풀었습니다' : ''}${r.error ? ' — 끝까지 풀지 못했습니다(잘렸거나 뒤에 다른 바이트가 있음). 앞부분만 보입니다' : ''}`;
+      } else if (plan.reason === 'unsupported') {
+        mode = 'hex';
+        encInfo.textContent = `압축(${line(enc, 40)})은 이 브라우저에서 풀 수 없어 원본 바이트로 보입니다.`;
+      } else if (plan.reason === 'layered') {
+        mode = 'hex';
+        encInfo.textContent = `여러 겹 압축(${line(enc, 40)})은 풀지 않습니다. 원본 바이트로 보입니다.`;
+      }
+      show();
     })
     .catch(() => {});
   return box;

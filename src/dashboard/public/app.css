@@ -81,3 +81,7 @@ pre.body { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; wor
 pre.hex { white-space: pre; word-break: normal; }
 .note { color: var(--muted); font-size: 12px; }
 .tabs { display: flex; gap: 4px; margin: 4px 0; }
+
+/* [UI-5b] 기록된 이미지 미리보기: 상자 안에서만(화면을 덮는 가짜 UI 이미지 — P12), 테두리·이름표로 대시보드 화면과 구별 */
+.preview { max-width: 100%; max-height: 60vh; overflow: auto; border: 2px dashed var(--line); border-radius: 4px; padding: 6px; margin: 6px 0; background: repeating-conic-gradient(var(--head) 0 25%, var(--bg) 0 50%) 0 0 / 16px 16px; }
+.preview canvas { display: block; max-width: 100%; height: auto; }
