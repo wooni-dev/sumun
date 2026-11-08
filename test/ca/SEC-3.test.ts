@@ -87,11 +87,14 @@ function forgeCert(o: { cn: string; serialHex?: string; ca?: boolean; pathLen?: 
   const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const c = forge.pki.createCertificate();
   c.publicKey = forge.pki.publicKeyFromPem(publicKey.export({ type: 'spki', format: 'pem' }) as string);
-  c.serialNumber = o.serialHex ?? '01' + crypto.randomBytes(8).toString('hex');
+  // 첫 hex가 8~f면 forge가 음수 INTEGER로 써서 Node가 "-65D4…"로 읽는다 → 앞에 00을 붙여 양수로(Node는 00을 빼고 보여 준다)
+  c.serialNumber = o.serialHex === undefined ? '01' + crypto.randomBytes(8).toString('hex') : /^[89a-f]/i.test(o.serialHex) ? '00' + o.serialHex : o.serialHex;
   c.validity.notBefore = new Date(Date.now() - 86_400_000);
   c.validity.notAfter = new Date(Date.now() + 30 * 86_400_000);
-  c.setSubject([{ name: 'commonName', value: o.cn }]);
-  c.setIssuer([{ name: 'commonName', value: o.cn }]);
+  // UTF8String으로 넣는다(태그 없이 넘기면 0xFF 위 글자가 잘린다: 'ѕ' → 'U'). forge가 UTF8 태그일 때 스스로 UTF-8로 바꾸므로 encodeUtf8을 또 하면 두 번 인코딩된다
+  const name = [{ name: 'commonName', value: o.cn, valueTagClass: forge.asn1.Type.UTF8 }];
+  c.setSubject(name);
+  c.setIssuer(name);
   const ext: object[] = [{ name: 'basicConstraints', cA: o.ca ?? true, ...(o.pathLen === undefined ? {} : { pathLenConstraint: o.pathLen }), critical: true }];
   if (o.eku) ext.push({ name: 'extKeyUsage', serverAuth: true });
   c.setExtensions(ext);
@@ -260,6 +263,8 @@ test('B5·F1·F2: uninstall — 옛 sumun CA(이름 형식 + 인증서 모양)�
 test('B3: uninstall — 지울 지문이 사용자 Root의 다른 인증서 일련번호와 같으면(certutil이 그것도 고를 수 있음) 지우지 않는다', async () => {
   const { dir, der } = await newCA();
   const clash = forgeCert({ cn: 'other', serialHex: sha1(der).toLowerCase() });
+  // 긍정 전제(O30): 만든 인증서의 일련번호가 정말 현재 CA 지문과 같아야 "겹침"을 시험한다
+  assert.equal(new X509Certificate(clash).serialNumber.toLowerCase(), sha1(der).toLowerCase(), '일련번호 = 현재 CA 지문');
   const store = fakeStore({ user: [entry(der), entry(clash)] });
   const r = await run('uninstall', { caDir: dir, store, input: tty(['yes']) });
   assert.notEqual(r.code, 0);
@@ -284,6 +289,10 @@ test('F1·B6·E1: status — 현재 CA 등록 여부, 옛 sumun CA, 이름이 �
   const old = derOf((await loadOrCreateCA(path.join(tmp(), 'old'))).certPem);
   const look = forgeCert({ cn: 'ѕumun local CA 2026-11-08' }); // 키릴 ѕ
   const evil = forgeCert({ cn: 'x\x1b[2K\u202Eevil' });
+  // 긍정 전제(O30): 만든 인증서의 이름에 그 글자들이 실제로 들어 있어야 이 테스트가 사례를 시험한다
+  assert.ok(new X509Certificate(look).subject.includes('\u0455umun'), '키릴 ѕ(U+0455)가 인증서 이름에 들어 있음');
+  const evilSubject = String(new X509Certificate(evil).toLegacyObject().subject.CN); // subject 문자열은 ESC를 \1B로 바꿔 보여 주므로 원래 값을 본다
+  assert.ok(evilSubject.includes('\u202E') && evilSubject.includes('\x1b'), 'U+202E·ESC가 인증서 이름에 들어 있음');
   const store = fakeStore({ user: [entry(old), entry(look), entry(evil)] });
   const r = await run('status', { caDir: dir, store });
   assert.equal(r.code, 0, r.out);

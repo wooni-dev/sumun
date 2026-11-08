@@ -1,7 +1,7 @@
 // [SEC-3 실측] 테스트가 덮지 못한 사례(B6·E1): 이름에 진짜 UTF-8 키릴 문자·U+202E·ESC가 든 인증서를 status가 "비슷한 이름"으로 경고하고 이스케이프하는가
 //   node scripts/probe/sec3-lookalike.mjs
 // 이유: test/ca/SEC-3.test.ts의 forgeCert는 이름을 그대로 넘겨 forge가 0xFF 위 글자를 아래 바이트로 자른다('ѕ' → 'U', U+202E → '.')
-// [확인됨: 구현 중 디버그]. 여기서는 forge.util.encodeUtf8 + UTF8String으로 진짜 글자를 넣는다. 가짜 저장소만 쓴다(진짜 저장소 안 건드림).
+// [확인됨: 구현 중 디버그]. 여기서는 UTF8String 태그로 진짜 글자를 넣는다(forge가 스스로 UTF-8로 바꾼다. 처음 판(d944462)은 encodeUtf8을 또 해서 두 번 인코딩됐다 — 테스트 수정 중 발견). 가짜 저장소만 쓴다(진짜 저장소 안 건드림).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +17,7 @@ function cert(cn) {
   c.serialNumber = '01' + crypto.randomBytes(8).toString('hex');
   c.validity.notBefore = new Date(Date.now() - 86_400_000);
   c.validity.notAfter = new Date(Date.now() + 86_400_000);
-  const name = [{ name: 'commonName', value: forge.util.encodeUtf8(cn), valueTagClass: forge.asn1.Type.UTF8 }];
+  const name = [{ name: 'commonName', value: cn, valueTagClass: forge.asn1.Type.UTF8 }];
   c.setSubject(name);
   c.setIssuer(name);
   c.sign(forge.pki.privateKeyFromPem(privateKey.export({ type: 'pkcs8', format: 'pem' })), forge.md.sha256.create());
