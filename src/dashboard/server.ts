@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Store } from '../store/store.ts';
 import { handleApi, type ApiResult } from './api.ts';
+import { createEventHub, type EventOptions } from './events.ts';
 
 const BIND_HOST = '127.0.0.1';
 export const DASHBOARD_LIMITS = { bodyBytes: 16 * 1024, headerBytes: 16 * 1024 }; // D-13 [추측 수치]
@@ -47,6 +48,7 @@ const TEXT: Record<number, string> = {
   413: '요청 본문이 너무 큽니다.',
   415: '이 요청은 Content-Type: application/json으로만 받습니다.',
   500: '대시보드에서 오류가 났습니다.',
+  503: '실시간 연결이 너무 많습니다. 쓰지 않는 대시보드 탭을 닫고 다시 여세요.', // [UI-4] 연결 상한(U32)
 };
 // [UI-3] 같은 상태 코드의 다른 고정 문구(입력을 넣지 않는다 — U30)
 const TEXT_QUERY = '조회 조건이 올바르지 않습니다. host, method, status, after, limit을 한 번씩만 쓸 수 있고, status·after·limit은 숫자입니다.';
@@ -133,10 +135,12 @@ export async function startDashboard({
   store,
   port = 8081,
   headersTimeoutMs = 10_000, // 이 시간 안에 헤더를 다 보내지 않으면 닫는다(U37)
+  events, // [UI-4] 실시간 통로 상한(기본 EVENT_LIMITS)
 }: {
   store: Store;
   port?: number;
   headersTimeoutMs?: number;
+  events?: EventOptions;
 }): Promise<{ port: number; token: string; url: string; close: () => Promise<void> }> {
   if (port !== 0 && ((await portAnswers(port, BIND_HOST)) || (await portAnswers(port, '::1'))))
     throw Object.assign(new Error(`대시보드 포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다.`), { code: 'EADDRINUSE' });
@@ -144,6 +148,7 @@ export async function startDashboard({
   const token = crypto.randomBytes(32).toString('base64url'); // 43자, 실행마다 새로(D-2)
   const tokenBuf = Buffer.from(token);
   let actualPort = port;
+  const hub = createEventHub(store, events);
 
   const server = http.createServer(
     { maxHeaderSize: DASHBOARD_LIMITS.headerBytes, connectionsCheckingInterval: Math.max(50, Math.min(1000, Math.floor(headersTimeoutMs / 3))) },
@@ -169,6 +174,12 @@ export async function startDashboard({
         if (pathname.startsWith('/api/')) {
           if (!authorized(req, tokenBuf)) return fail(res, 401);
           if (pathname === '/api/ping') return method === 'GET' ? json(res, { runId: store.runId }) : fail(res, 405, { Allow: 'GET' });
+          // [UI-4] 실시간 통로(events.ts). 위의 검사를 모두 통과한 GET만 자리를 받는다(U32). 자리가 차면 503 — 오래된 연결을 끊지 않는다
+          if (pathname === '/api/events') {
+            if (method !== 'GET') return fail(res, 405, { Allow: 'GET' });
+            if (!hub.open(res)) fail(res, 503);
+            return;
+          }
           // [UI-3] 조회 API(api.ts). 요청 본문은 쓰지 않는다(지우기는 Content-Type만 본다) — 본문 상한은 위의 'data'가 지킨다
           return sendApi(res, handleApi(store, method, pathname, (req.url ?? '').slice(pathname.length + 1), req.headers));
         }
@@ -193,6 +204,7 @@ export async function startDashboard({
     port: actualPort,
     token,
     url: `http://${BIND_HOST}:${actualPort}/#t=${token}`,
-    close: () => new Promise<void>((r) => (server.closeAllConnections(), server.close(() => r()))),
+    // [UI-4] 허브를 먼저 닫는다(하트비트 타이머·저장소 구독을 풀고 스트림을 끝냄)
+    close: () => new Promise<void>((r) => (hub.close(), server.closeAllConnections(), server.close(() => r()))),
   };
 }
