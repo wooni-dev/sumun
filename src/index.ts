@@ -41,7 +41,33 @@ if (decrypt) {
 const store = createStore();
 const hooks = attachStore(store);
 
+// [UI-1] 대시보드(D-12 기본 켬). 기본 포트 = 프록시 포트 + 1(기본 실행이면 8081 — D-1).
+// 직접 준 --dashboard-port를 못 쓰면 시작하지 않는다(U41). 기본으로 정한 포트가 차 있으면 다른 빈 포트(OS가 고름)에서 연다 —
+// 차 있는 포트는 쓰지 않으므로 가짜 대시보드 위험은 없다. 주소는 시작 줄에 나온다(7e0c9e1 결함: listen(0) 포트가 연속 번호라 +1이 자주 차 있다)
+// [UI-2] E-5: 프록시보다 먼저 연다 — 프록시는 시작할 때부터 실제 대시보드 포트(대체 포트여도)를 막는다(V16, V17).
+// 나중에 알려 주면 그 사이에 받은 CONNECT가 남는다(복호화는 터널 안 요청 때 연결한다 — V15)
+let dash: Awaited<ReturnType<typeof startDashboard>> | undefined;
+if (dashboard !== false) {
+  const dport = dashboardPort ?? (port < 65535 ? port + 1 : port - 1);
+  try {
+    try {
+      dash = await startDashboard({ store, port: dport });
+    } catch (err) {
+      if (dashboardPort !== undefined || (err as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw err;
+      // [UI-2] E-5: 대시보드를 프록시보다 먼저 연다. OS가 고른 포트가 프록시 포트와 같으면(프록시는 아직 열리지 않았다) 다시 고른다
+      dash = await startDashboard({ store, port: 0 });
+      for (let i = 0; i < 3 && dash.port === port; i++) (await dash.close(), (dash = await startDashboard({ store, port: 0 })));
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'EADDRINUSE') fatal(`대시보드 포트 ${dport}를 이미 다른 프로그램이 쓰고 있습니다. 다른 포트로 시작하세요: npm start -- --dashboard-port 9001`);
+    if (code === 'EACCES') fatal(`대시보드 포트 ${dport}를 쓸 권한이 없습니다(Windows가 예약한 포트일 수 있습니다).`);
+    fatal(`대시보드를 시작하지 못했습니다(${safeText(String(code ?? '알 수 없는 오류'), 40)}).`);
+  }
+}
+
 let proxy: Awaited<ReturnType<typeof startProxy>>;
+let guided = false;
 try {
   // [TLS-1] tunnel: true — HTTPS(CONNECT)를 복호화 없이 통과시킨다. 요약 줄에는 대상과 바이트 수만 나온다
   // 요약 줄을 먼저 찍고 저장한다(저장에서 오류가 나도 요약 줄은 남는다)
@@ -49,6 +75,13 @@ try {
     port,
     tunnel: true,
     ca,
+    // [UI-2] 프록시를 거친 대시보드 요청은 403(기록 없음). 안내 줄은 실행마다 한 번만(E-8 — 기록이 없으니 요약 줄도 없다)
+    dashboardPort: dash?.port,
+    onDashboardRefused: () => {
+      if (guided) return;
+      guided = true;
+      process.stdout.write('sumun: 대시보드로 가는 요청이 프록시로 들어와 거절했습니다. 대시보드는 프록시를 거치지 않고 직접 여세요 — 브라우저(또는 Windows) 프록시 설정의 예외 목록에 127.0.0.1과 localhost를 넣으세요(이 안내는 한 번만 나옵니다).\n');
+    },
     onFlowStart: hooks.onFlowStart,
     onFlow: (flow) => {
       process.stdout.write(`${formatSummary(flow)}\n`);
@@ -61,27 +94,6 @@ try {
   if (code === 'EADDRINUSE') fatal(`포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다. 다른 포트로 시작하세요: npm start -- --port 9000`);
   if (code === 'EACCES') fatal(`포트 ${port}를 쓸 권한이 없습니다(Windows가 예약한 포트일 수 있습니다).`);
   fatal(`시작하지 못했습니다(${safeText(String(code ?? '알 수 없는 오류'), 40)}).`);
-}
-
-// [UI-1] 대시보드(D-12 기본 켬). 기본 포트 = 프록시 포트 + 1(기본 실행이면 8081 — D-1).
-// 직접 준 --dashboard-port를 못 쓰면 시작하지 않는다(U41). 기본으로 정한 포트가 차 있으면 다른 빈 포트(OS가 고름)에서 연다 —
-// 차 있는 포트는 쓰지 않으므로 가짜 대시보드 위험은 없다. 주소는 시작 줄에 나온다(7e0c9e1 결함: listen(0) 포트가 연속 번호라 +1이 자주 차 있다)
-let dash: Awaited<ReturnType<typeof startDashboard>> | undefined;
-if (dashboard !== false) {
-  const dport = dashboardPort ?? (port < 65535 ? port + 1 : port - 1);
-  try {
-    try {
-      dash = await startDashboard({ store, port: dport });
-    } catch (err) {
-      if (dashboardPort !== undefined || (err as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw err;
-      dash = await startDashboard({ store, port: 0 });
-    }
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code === 'EADDRINUSE') fatal(`대시보드 포트 ${dport}를 이미 다른 프로그램이 쓰고 있습니다. 다른 포트로 시작하세요: npm start -- --dashboard-port 9001`);
-    if (code === 'EACCES') fatal(`대시보드 포트 ${dport}를 쓸 권한이 없습니다(Windows가 예약한 포트일 수 있습니다).`);
-    fatal(`대시보드를 시작하지 못했습니다(${safeText(String(code ?? '알 수 없는 오류'), 40)}).`);
-  }
 }
 
 // M2: listen이 성공한 뒤에만, 실제 주소로. [UI-1] 대시보드 주소(#t=토큰, D-3)는 같은 줄 끝에 붙인다(시작 출력은 한 줄)
