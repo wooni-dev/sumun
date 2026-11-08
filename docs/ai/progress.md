@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-3] 완료(병합 뒤 발견한 지연 결함까지 고쳐 main에 병합). 다음: TLS-4.
+- 작업: [TLS-4] TLS 종료 후 복호화한 요청 기록 (feat/TLS-4). 아래 "[TLS-4] 계획".
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -584,6 +584,30 @@
   - E93 일치: `node scripts/probe/tls3-lag.mjs` 2회 → 20개 동시 한가함 13~27ms(전 23~73), 바쁨 16~45ms(전 65~267, 기준선 33·37ms).
   - E94 일치: `npm test` 3회 → 3번 모두 494 / 492 통과 / 실패 0.
 - hook 기록(O25): 실측 커밋 메시지를 printf로 쓰다 막힘(메시지 안의 "npm test" 글자와 리다이렉트) → 의도한 보수적 동작. 커밋 메시지는 Write 도구로 쓰는 것으로 정함.
+
+### [TLS-4] 계획
+- 사용자 승인(2026-11-08): "TLS-4 진행". 결정 4개 — SNI ≠ CONNECT면 **CONNECT 기준**, 터널 안 Host가 다르면 **421**, 목적지 불신은 **터널 안 502**, `npm start` 복호화는 **`--decrypt`일 때만**(모두 추천안).
+- 미확인 항목(O13): 변화 없음(남은 것: ai-research Read 규칙, Ctrl+C, EACCES — 세션 밖 조건).
+- 보안 사례(O10): `docs/ai/tls4-cases.md`(검토 에이전트 약 70개 + 결정 11개, 작업자 결정 1개 추가). 크기 때문에 TLS-4와 TLS-4b(견고성)로 나눴다(목적 나무에 TLS-4b 추가). H1·H4(실제 브라우저)는 등록이 필요해 SEC-3으로(O28).
+- 큰 단위 테스트: 이 단위가 대기 파일 `src/tls/mitm.ts`를 만든다 → TLS-T 2개가 실제 검사가 된다.
+- 한 줄 보고: 목표 = CONNECT 뒤 TLS를 종료해 복호화한 요청을 기록하고, 검증한 HTTPS 목적지로 중계 / 범위 =
+  - 새 `src/tls/mitm.ts`: `openMitm(...)`(CONNECT 검사 → 200 → TLS 서버 핸드셰이크 → 안쪽 HTTP 서버로), `createCertCache(ca)`(호스트별 발급, single-flight, 실패는 캐시 안 함)
+  - `src/tls/tunnel.ts`: CONNECT 대상 검사(해석·이름 한 번·루프)를 `openTunnel`과 `openMitm`이 같이 쓰도록 함수로 나눔
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `ca`, `upstreamCA`. 요청 처리기를 함수로 나눠 평문과 터널 안 요청이 같이 씀. 터널 안: Host 421, 목적지 `https.request`(검사한 주소, servername, 신뢰 목록 = 공개 CA + upstreamCA, 검증 명시), `bad-certificate` 502
+  - `src/flow/flow.ts`: 오류 code `bad-certificate`·`tls-handshake`, 칸 `tls?: { sni }`
+  - `src/cli.ts`: `parseArgs()`에 `--decrypt`, `formatSummary()`가 https 요청 줄을 보이게
+  - `src/index.ts`: `--decrypt`면 `loadOrCreateCA(defaultCADir())` → `startProxy({ ca })`
+  - 새 `test/tls/TLS-4.test.ts`(새 동작), 새 `test/tls/TLS-4-regression.test.ts`, 새 `scripts/probe/tls4-*.mjs`
+  - `docs/ai/tls4-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/TLS-4.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 배정 "4b", Windows 인증서 저장소 등록(SEC-3), 실제 브라우저 확인(SEC-3), HTTP/2·WebSocket 해석
+- 예상 [추측] (판정 기준 포함):
+  - E95: `https.request`에 `rejectUnauthorized: true`를 명시하면 `NODE_TLS_REJECT_UNAUTHORIZED=0`이어도 자체 서명 목적지가 실패한다. 판정: 오류 code가 인증서 오류(DEPTH_ZERO_SELF_SIGNED_CERT 등)면 일치.
+  - E96: CONNECT 소켓에 head를 되돌려 넣고(`unshift`) `new tls.TLSSocket(socket, { isServer: true })`로 감싸면, CONNECT와 같은 write로 온 ClientHello로도 핸드셰이크가 된다. 판정: 성공.
+  - E97: 안쪽 `http.Server`에 `emit('connection', tlsSocket)`으로 넘기면 keep-alive 요청 3개를 차례로 처리한다. 판정: 응답 3개.
+  - E98: 목적지 인증서 오류 코드 — 만료 CERT_HAS_EXPIRED, 자체 서명 DEPTH_ZERO_SELF_SIGNED_CERT, 이름 불일치 ERR_TLS_CERT_ALTNAME_INVALID, 모르는 CA UNABLE_TO_VERIFY_LEAF_SIGNATURE. 판정: 실측한 코드 목록을 구현의 bad-certificate 판정에 쓴다(다르면 기록).
+  - E99: 이 PC의 curl(Schannel)이 `--cacert <루트>`로 Windows 저장소 없이 MITM 프록시를 거친 HTTPS에 200을 받는다. 판정: 200. 폐기 확인 오류(CRYPT_E_NO_REVOCATION_CHECK 등)면 `--ssl-no-revoke`로 다시 하고 기록.
+  - E100: stub(mitm.ts가 빈 함수, server.ts는 ca를 무시 → CONNECT 501)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E101: 구현 뒤 `npm test` 실패 0이고 **큰 단위 대기 TLS 0**(TLS-T 2개가 실제로 통과). 판정: 둘 다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
