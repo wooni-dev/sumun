@@ -1165,6 +1165,15 @@
   - 원인: Windows는 `listen(0)`에 포트를 **연속 번호**로 준다(`ui1-ports.mjs` → 56484~56489 "연속"). 대시보드 기본 포트를 "프록시 포트 + 1"로 정했으므로, 테스트가 고른 P의 P+1을 다른 테스트의 서버가 쓰고 있기 쉽다. 그러면 `npm start`가 대시보드를 열지 못해 종료 코드 1로 끝나고(`ui1-collide.mjs`), TLS-1 "npm start는 터널을 켠다"는 시작 줄 없이 프록시에 연결해 응답을 기다리다 멈춘다. 시작이 느려진 것은 아니다(`ui1-startup.mjs` 켬·끔 모두 약 0.6초 — 처음 추측은 틀림).
   - 고칠 방향 [추측]: `--dashboard-port`로 **직접 준 포트**가 차 있으면 지금처럼 멈춘다(U41). **기본으로 정한 포트**(프록시 + 1)가 차 있으면 다른 빈 포트(OS가 고름)로 열고 시작 줄에 그 주소를 보인다 — 차 있는 포트를 쓰지 않으므로 U41의 위험(가짜 대시보드)은 없다. 기존 TLS-1·PRX-4 테스트와 UI-1 테스트는 바꾸지 않는다. → UI 보고서 결정 항목(기본 포트 규칙).
   - 재현 테스트: 새 `test/ui/UI-1-default-port.test.ts`(P+1을 잡아 둔 채 `--port P`로 띄우면 시작 줄 한 줄, 대시보드는 P+1이 아닌 포트에서 200).
+  - 처리: 기록 7e0c9e1 → 재현 테스트 c2844c7(2e63d8e에서 red: AssertionError 1개 "종료하면 안 됨: 종료 1") → 수정 bb45a5f.
+- 실측 (명령 원문):
+  - E170 일치(e71aef1 커밋 전, stub): `npm run test:red -- test/ui/UI-1.test.ts` → tests 13 / fail 13, AssertionError 13개, 오류 0. `npm test -- test/ui/UI-1-regression.test.ts` → 1 / 1.
+  - E171 **불일치**(2e63d8e): UI-1 테스트는 14 / 14였지만 전체 `npm test`가 5분 넘게 끝나지 않았다(위 결함). 첫 실행에서 OPTIONS가 401(토큰 검사가 먼저)로 1개 실패 → 메서드 검사를 앞으로(2e63d8e에 포함).
+  - E172 일치(bb45a5f 코드): `npm.cmd start -- --port 18080` → 시작 줄 한 줄 "… 끝내려면 Ctrl+C / 대시보드: http://127.0.0.1:18081/#t=<토큰> …". `curl.exe http://127.0.0.1:18081/` → 200 text/html(CSP·X-Frame-Options·no-store·no-referrer, CORS 없음), `/api/ping` 토큰 없음 401, `-H "Authorization: Bearer <토큰>"` → 200 `{"runId":"c5f01109acd1057c"}`, `-H "Origin: http://evil.example"` → 403, `-H "Host: evil.example:18081"` → 403. 끈 뒤 18080·18081 LISTENING 없음.
+  - E173 일치(bb45a5f): `timeout 400 npm test` → 종료 코드 0, tests 720 / pass 718 / fail 0 / todo 2, 80초, "큰 단위 대기(todo) UI: 2개, 그중 실패 2개".
+- 계획과 달라진 점: 기본 포트가 차 있을 때 다른 빈 포트로 여는 규칙을 더했다(결함 수정). 새 재현 테스트 파일 `UI-1-default-port.test.ts`와 진단 스크립트 `scripts/probe/ui1-startup.mjs`·`ui1-ports.mjs`·`ui1-collide.mjs`를 더했다. 같은 새 테스트 파일을 실패한 채 두 번 돌렸다(OPTIONS — 두 번째는 진단용, O53 한도 안).
+- hook이 막은 것: 진단 명령(`>` + `test/` 경로) 2번 — 의도한 보수적 동작. 스크립트 파일로 실행했다.
+- 범위 밖 관찰: 없음.
   - E172 실측(O31, 실제 클라이언트): `npm start -- --port 18080`을 띄우고 시작 줄의 주소를 확인한 뒤 curl로 `http://127.0.0.1:18081/` → 200 HTML, `/api/ping`(토큰 없음) → 401, 토큰 → 200, `-H "Origin: http://evil.example"` → 403, `-H "Host: evil.example:18081"` → 403. 판정: 다섯 다 이와 같으면 일치.
 
 ## 범위 밖 문제
