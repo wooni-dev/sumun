@@ -9,7 +9,8 @@
   - 미확인(세션 밖, 남음): Edge·Firefox·Windows 시스템 프록시 설정 → SEC 큰 단위.
   - 지금 루트 CA는 **등록 안 됨**(2026-11-09 사용자 해제).
   - 다음: INFRA(O55~O61을 CLAUDE.md·check-method에) → UI-7(필터 0건 안내) → SEC 큰 단위.
-- 2026-11-09: **[INFRA-14] 구현·문서 끝(병합 전)** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) → check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). E199~E201 일치, E202 [탐색] UI-1 E172 하나. `npm test` 809/809. 자세히는 아래 "[INFRA-14] 계획"과 `docs/for-me/INFRA-14.md`.
+- [INFRA-14] 완료: 57b4233([RULE])·1ad5b5f..fb00127, 병합 9b19774. `node scripts/check-method.mjs --id INFRA-14`(9b19774) → 10개 ✅, tree-updated ➖(INFRA), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: UI-7(필터 0건일 때 "도메인 전체를 넣으세요" 안내, UI 보고서 결정 23) → SEC 큰 단위.
+- 2026-11-09: **[INFRA-14] 구현·문서 끝** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) → check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). E199~E201 일치, E202 [탐색] UI-1 E172 하나. `npm test` 809/809. 자세히는 아래 "[INFRA-14] 계획"과 `docs/for-me/INFRA-14.md`.
 - 세션 종료(2026-11-08 자정 무렵). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 796개 모두 통과, 실패 0, 대기 0(4ecb95d 코드 기준, 두 번 — 그 뒤는 실측 스크립트·문서만).
   - 이번 세션(/clear 뒤)에 끝낸 것: UI 큰 단위 끝 1~5단계(감사 [AUDIT-12], 보고서 `docs/for-me/UI-report.md` [AUDIT-13·14], 승인 [AUDIT-15] "모두 추천대로", 결정 4만 다시 여쭤 "메모리에만") → [UI-6] 화면 고침(검토 사례 ui6-cases K1~K37, 테스트 수정 허용 1건 4ecb95d, 병합 e10f397).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T·UI-1~6·UI-2b·UI-5b 모두 ✅ — 남은 것은 결정 10 최종 확인), SEC은 SEC-3 ✅.
