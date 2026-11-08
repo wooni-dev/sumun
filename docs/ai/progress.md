@@ -8,7 +8,7 @@
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T 대기, UI-1·UI-2·UI-2b·UI-3 ✅, UI-4·UI-5 ⬜), SEC은 SEC-3 ✅.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - **다음 세션 첫 일(순서):**
-    1. **[UI-4]** 실시간 통로 `src/dashboard/events.ts`: `GET /api/events` → `text/event-stream`, 줄 `data: <저장소 알림 JSON>`(D-4, UI-T가 고정 — 알림에 본문 없음). 연결 상한 16·검사 뒤 수락(U32), 큐에 넣고 바로 반환(STO 결정 1), 느린 구독자 버퍼 1MiB 넘으면 끊음(U33), 재연결(마지막 id·evicted·cleared·runId — U34), 출처당 6연결(U36). 배정 ui-cases "UI-4". 차단 규칙이 아니면 UI-T 때 받은 사례를 쓴다.
+    1. ~~[UI-4]~~ 실시간 통로 — 2026-11-08 다음 세션(/clear 뒤)에서 끝냄(bdf5e89..). 화면이 지킬 것: 연결마다 hello가 오면 목록을 API로 다시 받기, runId가 바뀌면 새 실행, 탭당 스트림 1개(U36), fetch 스트림으로 읽기(D-4).
     2. [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4) → UI-T 대기가 풀린다.
     3. UI 큰 단위 끝: 전체 테스트(대기 0) → 감사(method-auditor) → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md`(O52: -T 경로마다 실제 클라이언트, HTTPS는 사용자가 CA 등록 뒤 브라우저 — STO 결정 15. **브라우저가 loopback을 프록시에서 기본으로 빼는지 실측** — UI-2 안내 문구·F5 개발 앱 기록에 영향) → `check-method --id UI`.
   - UI 보고서에 올릴 결정(추천으로 진행): 기본 대시보드 포트 = 프록시 + 1(차 있으면 다른 빈 포트), 주소는 시작 줄 끝, 페이지도 cross-site면 403, X1(루프백 서비스 전체 — UI-2 V19·V20 포함), UI-2 E-2·E-3·E-5·E-8·E-9(`docs/for-me/UI-2.md`), UI-2b W1~W4([::1] 쪽 놓침 — "127.0.0.1에만" 규칙과 걸림), UI-3 목록 순서·전체 개수·limit 줄임(STO 결정 6), rebase를 규칙 D가 알리는 것(사용자 결정 A로 이번엔 그대로), 목적 나무에 추가한 UI-T·UI-1~5·UI-2b. `docs/for-me/UI-2.md`의 "해야 할 것"(프록시 예외 목록) 문구는 브라우저 실측 뒤 고친다.
@@ -1303,6 +1303,20 @@
   - E185: stub = events.ts의 `createEventHub`가 `open`은 false, `close`·`stats`는 빈 동작(server.ts는 아직 부르지 않음 → /api/events는 지금처럼 404). `npm run test:red -- test/ui/UI-4.test.ts` → 새 동작 테스트가 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-4-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
   - E186: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, "큰 단위 대기(todo) UI: 2개", 5분 안. 판정: 넷 다면 일치.
   - E187(O31, 실제 클라이언트): 목적지 `node -e`(127.0.0.1:18090, E180과 같은 명령), `npm.cmd start -- --port 18080`(대시보드 18081). `curl.exe -s -N -H "Authorization: Bearer <토큰>" http://127.0.0.1:18081/api/events`를 백그라운드로 열어 둔 채 `curl.exe -s -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:18090/x` → 스트림 출력에 hello(runId), 같은 id의 start·done(url `/x`)이 있고 `CURL-COOKIE`·`curl-body`는 없다. 토큰 없이 같은 주소 → 401. 판정: 셋 다면 일치.
+
+- 실측 (명령 원문):
+  - E185 일치(8af6cbd 커밋 전, stub = createEventHub의 open 늘 false, server.ts는 부르지 않음): `npm run test:red -- test/ui/UI-4.test.ts` → tests 11 / fail 11, 모두 AssertionError, 오류 0. `npm test -- test/ui/UI-4-regression.test.ts` → 1 / 1.
+  - 중간 1(b2aa7ab, events.ts만): `npm test -- test/ui/UI-4.test.ts` → 11 중 1 통과(허브를 직접 부르는 "큐에 넣고 바로 반환"), 10 실패(server.ts 필요).
+  - 중간 2(387aea5 상태 = server.ts + b2aa7ab events.ts): `npm test -- test/ui/UI-4.test.ts test/ui/UI-4-regression.test.ts test/ui/UI-T.test.ts` → 14 / pass 11 / fail 1 / todo 2. 실패 "느린 구독자" — junit 문구 "빠른 연결은 계속 받는다". 이 테스트의 연속 실패 셈이 2가 되어(O53), 다시 돌리기 전에 실측 스크립트로 원인을 확인했다.
+  - 원인 [확인됨]: `node scripts/probe/ui4-slow.mjs` — b2aa7ab의 events.ts(git stash)로 `{"freedAtRound":1,"fastGotLast":false,"fastEnded":true}`(읽는 연결도 첫 차례에 끊김), 쓰기 전에 재도록 고친 뒤 3회 모두 `{"freedAtRound":5,"fastGotLast":true,"fastEnded":false}`, `node scripts/probe/ui4-slow.mjs 1048576 16384` → `{"freedAtRound":8,"fastGotLast":true,"fastEnded":false}`. 수정 933474f, 스크립트 68dca9f.
+  - 수정 뒤(933474f): `npm test -- test/ui/UI-4.test.ts test/ui/UI-4-regression.test.ts test/ui/UI-T.test.ts test/ui/UI-1.test.ts test/ui/UI-3.test.ts` → 35 / pass 33 / fail 0 / todo 2.
+  - E186 일치(68dca9f): `timeout 400 npm test` → 종료 코드 0, tests 756 / pass 754 / fail 0 / todo 2, 87초, "큰 단위 대기(todo) UI: 2개, 그중 실패 1개".
+  - E187 일치(68dca9f 코드): 목적지 `node -e "require('http').createServer((q,r)=>{let b='';q.on('data',c=>b+=c);q.on('end',()=>r.end('upstream-saw:'+b))}).listen(18090,'127.0.0.1')"`, `npm.cmd start -- --port 18080`(대시보드 18081). `curl.exe -s -N -i -m 4 -H "Authorization: Bearer <토큰>" http://127.0.0.1:18081/api/events`를 백그라운드로 열고 0.7초 뒤 `curl.exe -s -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:18090/x` → `upstream-saw:curl-body`. 스트림: 200, `Content-Type: text/event-stream; charset=utf-8`, CSP·nosniff·no-store 등 UI-1 헤더, `data: {"type":"hello","runId":"cfdbb0986f294fb6"}` → `id: 1` start(id 1, POST, url `http://127.0.0.1:18090/x`) → `id: 2` done(id 1, status 200, statusFrom upstream). `grep -c CURL-COOKIE` 0, `grep -c curl-body` 0. 토큰 없이 `curl.exe -s -o NUL -w "%{http_code}" …/api/events` → 401.
+  - 추가 [탐색](F8, requestTimeout 30초가 스트림을 끊는지): `curl.exe -s -N -m 40 -H "Authorization: Bearer <토큰>" http://127.0.0.1:18081/api/events` → hello, `: ping` 2번, curl 종료 코드 28(curl 자신의 -m 40 제한), 40.0초 — 서버가 끊지 않았다. 끈 뒤 18080·18081·18090 LISTENING 0.
+- 계획과 달라진 점: 느린 구독자 판정을 "쓴 뒤"에서 "쓰기 전"으로(933474f). 실측 커밋이 계획 직후가 아니라 구현 뒤(68dca9f)에 있다 — 구현 중에 만든 스크립트라서.
+- hook이 막은 것: `.claude/state/junit.xml`을 `grep`·`cat`으로 읽으려던 Bash 명령이 "상태 폴더는 Claude가 직접 쓸 수 없습니다"로 막힘 — 읽기만 하는 명령이었다. 의도한 보수적 동작으로 보인다 [추측: 규칙 B는 상태 폴더 경로가 든 셸 명령을 패턴으로 막음]. Grep 도구로 읽었다.
+- 범위 밖 관찰: 없음.
+- UI 보고서 결정 항목: `docs/for-me/UI-4.md` "UI 보고서에 올릴 결정".
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.

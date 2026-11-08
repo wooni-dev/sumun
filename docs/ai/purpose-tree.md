@@ -60,7 +60,7 @@
  │   ├ [UI-2] 프록시 쪽 대시보드 차단: 대시보드 포트로 가는 평문·CONNECT 거부와 안내   ✅  → src/proxy/server.ts, src/tls/, src/index.ts  (배정 "UI-2", 사례 ui2-cases.md)
  │   ├ [UI-2b] 포트 점유 검사의 self-connect 결함(UI-3 중 발견): 아무도 없는 포트를 점유로 보지 않음   ✅  → src/proxy/server.ts, src/dashboard/server.ts  (사례 ui2b-cases.md, 2026-11-08 사용자 결정 A — Claude가 추가)
  │   ├ [UI-3] 조회 API: 목록(필터·페이지)·상세·본문·지우기   ✅  → src/dashboard/api.ts  (배정 "UI-3")
- │   ├ [UI-4] 실시간 통로: SSE, 연결 상한, 느린 구독자, 재연결   ⬜  → src/dashboard/events.ts  (배정 "UI-4")
+ │   ├ [UI-4] 실시간 통로: SSE, 연결 상한, 느린 구독자, 재연결   ✅  → src/dashboard/events.ts  (배정 "UI-4")
  │   └ [UI-5] 화면: 목록·상세·필터, 안전한 출력, 미리보기, 큰 값   ⬜  → src/dashboard/public/  (배정 "UI-5")
  │         (UI-T·UI-1~5: 2026-11-08 Claude가 나눔 — 작은 기능 추가, 보고서에 표시)
  └ [SEC] 안전장치 — 왜: MITM 도구는 잘못 쓰면 내 PC의 보안 구멍이 됨     ⬜  모든 기능에 걸침
