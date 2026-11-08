@@ -3,16 +3,17 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 세션 종료(2026-11-08 저녁). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 720개 중 718 통과, 실패 0, 대기 2(UI-T — `src/dashboard/public/app.js`가 생기면 풀림, bb45a5f 기준 — 그 뒤는 문서만).
-  - 이번 세션에 끝낸 것: [INFRA-13](규칙 D: 커밋 제목 ID = 브랜치, main 허용 목록, 표시 키 `"branch": true`) → [UI-T](대시보드 큰 단위 테스트 2개, 사례 `docs/ai/ui-cases.md` U1~U52, 결정 D-1~D-16 모두 추천대로) → [UI-1](대시보드 서버·요청 보호·토큰·`npm start` 연결, 결함 1건 처리).
-  - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T 대기, UI-1 ✅, UI-2~5 ⬜), SEC은 SEC-3 ✅.
+- 세션 종료(2026-11-08 밤). 사용자: "다음 세션에서 이어서 할게". main = 이 기록 커밋. `npm test` 744개 중 742 통과, 실패 0, 대기 2(UI-T — 그중 실패 1, 보호 테스트는 이제 통과. `src/dashboard/public/app.js`가 생기면 풀림. f805543 코드 기준 — 그 뒤는 문서만).
+  - 이번 세션에 끝낸 것: [UI-2](프록시 쪽 대시보드 차단, 사례 ui2-cases V1~V23) → [UI-3] 시작 → 구현 중 UI-2 결함 발견 → [UI-2b](점유 검사 self-connect, 사례 ui2b-cases, 테스트 수정 사용자 허용 2ba1f82) → [UI-3](조회 API, rebase 뒤 병합).
+  - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T 대기, UI-1·UI-2·UI-2b·UI-3 ✅, UI-4·UI-5 ⬜), SEC은 SEC-3 ✅.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - **다음 세션 첫 일(순서):**
-    1. ~~[UI-2]~~ 완료(2026-11-08, e5e5eaa.. — 아래 [UI-2] 계획). 원래 메모: 프록시 쪽 대시보드 차단(배정 "UI-2": U15·U16·U17): `startProxy({ …, dashboardPort })` — 프록시를 거쳐 대시보드 포트(127.0.0.1·localhost·숫자 표기 등 루프백 주소)로 가는 평문 요청과 CONNECT(불투명 터널·복호화 모두)를 중계하지 않고 우회 안내로 거부, **기록도 남기지 않는다**(UI-T 보호 테스트가 "기록이 늘지 않음"을 본다). `src/index.ts`가 대시보드 포트를 넘긴다. 재현: `node scripts/probe/ui-review/e1.mjs`·`e2.mjs`.
-    2. ~~[UI-3]~~ 완료(2026-11-08, 사이에 UI-2b). 원래 메모: [UI-3] 조회 API(`/api/flows`, 상세, `/body/request|response` octet-stream, `POST /api/clear`, 페이지 상한 500 — STO 결정 6) → [UI-4] SSE `/api/events`(연결 상한 16, 큐에 넣고 바로 반환 — STO 결정 1, 느린 구독자 1MiB) → [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4). UI-T가 고정한 모양은 `docs/ai/progress.md` [UI-T] 계획.
-    3. UI 큰 단위 끝: 전체 테스트(대기 0) → 감사(method-auditor) → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md`(O52: -T 경로마다 실제 클라이언트, HTTPS는 사용자가 CA 등록 뒤 브라우저 — STO 결정 15) → `check-method --id UI`.
-  - UI 보고서에 올릴 결정(추천으로 진행): 기본 대시보드 포트 = 프록시 + 1(차 있으면 다른 빈 포트), 주소는 시작 줄 끝, 페이지도 cross-site면 403, X1(프록시가 모든 루프백 서비스로 중계 — 리바인딩 노출), 목적 나무에 추가한 UI-T·UI-1~5.
-  - 이번 세션에서 배운 것: Windows는 `listen(0)` 포트를 연속 번호로 준다(테스트 포트 +1은 자주 차 있다). `npm test -- 파일 --test-name-pattern`은 실행기에서 적용되지 않는다. `test:red`는 연속 실패 셈에 들어가지 않는다. 진단 명령에 `>`와 `test/` 경로를 함께 쓰면 hook이 막는다 → 스크립트 파일로. 규칙 D는 읽기만 하는 `git branch --show-current`도 커밋과 한 명령이면 막는다(Q6대로 정한 보수적 동작, 오탐에 가까움 — 명령을 나누면 됨. 고칠지는 UI 보고서 때 여쭙는다).
+    1. **[UI-4]** 실시간 통로 `src/dashboard/events.ts`: `GET /api/events` → `text/event-stream`, 줄 `data: <저장소 알림 JSON>`(D-4, UI-T가 고정 — 알림에 본문 없음). 연결 상한 16·검사 뒤 수락(U32), 큐에 넣고 바로 반환(STO 결정 1), 느린 구독자 버퍼 1MiB 넘으면 끊음(U33), 재연결(마지막 id·evicted·cleared·runId — U34), 출처당 6연결(U36). 배정 ui-cases "UI-4". 차단 규칙이 아니면 UI-T 때 받은 사례를 쓴다.
+    2. [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4) → UI-T 대기가 풀린다.
+    3. UI 큰 단위 끝: 전체 테스트(대기 0) → 감사(method-auditor) → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md`(O52: -T 경로마다 실제 클라이언트, HTTPS는 사용자가 CA 등록 뒤 브라우저 — STO 결정 15. **브라우저가 loopback을 프록시에서 기본으로 빼는지 실측** — UI-2 안내 문구·F5 개발 앱 기록에 영향) → `check-method --id UI`.
+  - UI 보고서에 올릴 결정(추천으로 진행): 기본 대시보드 포트 = 프록시 + 1(차 있으면 다른 빈 포트), 주소는 시작 줄 끝, 페이지도 cross-site면 403, X1(루프백 서비스 전체 — UI-2 V19·V20 포함), UI-2 E-2·E-3·E-5·E-8·E-9(`docs/for-me/UI-2.md`), UI-2b W1~W4([::1] 쪽 놓침 — "127.0.0.1에만" 규칙과 걸림), UI-3 목록 순서·전체 개수·limit 줄임(STO 결정 6), rebase를 규칙 D가 알리는 것(사용자 결정 A로 이번엔 그대로), 목적 나무에 추가한 UI-T·UI-1~5·UI-2b. `docs/for-me/UI-2.md`의 "해야 할 것"(프록시 예외 목록) 문구는 브라우저 실측 뒤 고친다.
+  - 이번 세션에서 배운 것: Windows는 나가는 소켓의 로컬 포트도 연속 번호로 준다 → 직전 임시 포트의 다음 번호에 접속하면 self-connect. 테스트 포트는 임시 포트 범위(49152~) 밖에서 고른다. `npm test -- test/tls`(폴더)는 MODULE_NOT_FOUND — 파일 목록으로. `git checkout`과 테스트 경로를 한 명령에 쓰면 hook이 막는다(`git switch`로). 코드 치환을 node 스크립트로 할 때 따옴표·`\n` 이스케이프에 두 번 실수 — Edit 도구가 안전하다.
+- 지난 세션 종료(2026-11-08 저녁): INFRA-13 → UI-T → UI-1. 그때 정한 다음 일(UI-2)은 이번 세션에서 했다.
 - 지난 세션 종료(2026-11-08 오후): STO-5 → STO ✅ → INFRA-11 → INFRA-12. 그때 정한 다음 일(INFRA-13, UI 큰 단위 시작)은 이번 세션에서 했다.
   - 주의(쌓인 규칙):
     - 커밋은 `git commit -q -F "<절대 경로>"` 모양만(규칙 C hook이 막음). 메시지 파일 이름에 노드 ID, **Write 결과를 본 뒤에** 커밋(같은 응답에 함께 보내지 않음, O54). 작업 임시 폴더는 세션끼리 공유된다.
