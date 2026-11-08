@@ -3,14 +3,14 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: STO 하위 노드 모두 완료 → STO 🔨 확인 대기(O37). 큰 단위 마무리: 감사(method-auditor) → 검토 에이전트(목표 문서와 코드만) → 보고서 `docs/for-me/STO-report.md`.
-  - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
+- 작업: 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
+  - 이번 세션에 끝낸 것: 사용자 확인 3건(SEC-3 테스트 수정 허용, O47 보류, 예전 프로세스 종료) → SEC-3 테스트 수정(c8b1b43) → STO-T → STO-1 → STO-2 → STO-3 → STO-4 → STO 감사(AUDIT-7)·검토·보고서(AUDIT-8) → **STO 보고서 승인**(결정 1~15 모두 추천대로, 이 기록 커밋).
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
-  - 사용자 확인 3건 결과(2026-11-08, 선택 창):
-    1. SEC-3 테스트 결함(forgeCert UTF-8) → "테스트 수정 허용"(추천). 아래 [SEC-3 테스트 수정] 계획.
-    2. O47 → STO 큰 단위 보고서에서 결정(추천). `docs/method-feedback.md` 관찰 표에 적음.
-    3. 예전 테스트 프로세스 4개(PID 5888·7664·8096·9296) → 종료(추천). `Stop-Process -Id 9296,8096,7664,5888` 뒤 `Get-CimInstance Win32_Process -Filter "Name='node.exe'"` → 0개 [확인됨].
-  - 다음: **STO 보고서(`docs/for-me/STO-report.md`) 사용자 답 대기.** 추천 순서 = STO-5(R2 진행 중은 바이트 상한으로 빼지 않음 + 모르는 필터 조건 오류) → STO ✅ → INFRA(O47~O52) → UI.
+  - **다음 세션 첫 일(순서, STO 보고서 결정 14):**
+    1. **STO-5**: `src/store/store.ts` `enforce` — 바이트 상한으로는 완료만 빼고 진행 중은 진행 중 상한(1,000)으로만(결정 2, 검토 R2. 재현: `node scripts/probe/sto-final-review/r3-order.mjs` 7번). `src/store/filter.ts` `parseFilter` — 모르는 조건 이름은 TypeError(결정 7, R7). 주의: STO-2 테스트 "S-2: 진행 중도 바이트 상한에 들어간다"(긴 url 진행 중 20개가 1MiB 상한에서 빠짐)는 결정 2와 충돌한다 → 계획 단계에서 확인하고, 바꿔야 하면 멈추고 "테스트 수정 허용"을 여쭙는다(O40·O44).
+    2. STO-5가 끝나면 STO ✅(목적 나무), 사용자 문서 STO-2.md에 "실제 메모리 약 330MB"(결정 5).
+    3. **INFRA 단위**: 승인된 O47~O52 반영(`docs/method-feedback.md` 승인 상태 표). O47은 커밋 전 메시지 형식 검사 장치.
+    4. **UI 큰 단위**: 시작할 때 UI-T 큰 단위 테스트(STO-T 행동을 다시 하고 대시보드 단계를 붙임 — O42), 그 전에 **대시보드 보호**(Host·Origin 검사, CSRF, CORS, 접속 토큰, DNS 리바인딩, 프록시를 거쳐 대시보드로 오는 요청)를 별도 검토 에이전트의 우회 사례로 먼저 받는다(O10). 구독자는 큐에 넣고 바로 반환(결정 1), "복호화 꺼짐" 안내(결정 4), 목록 API 모양·필터 확장·진행 중 상세는 UI에서 정한다(결정 3·6·8). HTTPS 브라우저 실측은 UI 큰 단위 끝에서(결정 15, 사용자가 CA 등록).
   - 주의: 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로. 커밋 메시지는 Write 도구로 파일에 쓰고 `git commit -F`, **`- 검증:`은 글자 그대로**(괄호를 콜론 앞에 넣지 않는다 — TLS-4c·SEC-3에서 두 번 ❌). 예상 중 결과를 모르는 것은 `[탐색]`, 나머지는 실측 줄에 일치/불일치(O46, VERDICT_RULE_SINCE 뒤 작업).
   - 저장소를 바꾸는 명령(`npm run ca -- install·uninstall`)은 Claude가 실행하지 않는다 — TTY 검사가 막고, 사용자가 직접 실행한다(SEC-3 결정 6). Claude는 `status`(읽기)만.
 - 범위 밖으로 남은 것(보고서 '자세히 볼 부분'): 테스트 코드가 .claude/state/에 쓸 수 있는 빈틈(INFRA-9 사례 12), PRX-2 F6이 %LOCALAPPDATA%\sumun을 보지 않음, OS 연결 대기열 232개, curl --ssl-no-revoke.
@@ -953,7 +953,8 @@
 - 2. 감사(method-auditor, 입력은 노드 ID "STO"만): 하위 노드 5개 모두 ✅, big-unit-report·review ❌는 감사가 보고서보다 먼저라 정상. 경미 4건(진행 기록 정리, STO-1 범위 문구, 019f78e 검증 문구, 병합 뒤 기록 자리) → `docs/method-feedback.md` [STO] 절. 기록 정리 3건은 [AUDIT-7]에서 고침.
 - 3. 검토 에이전트(새 컨텍스트, 입력 = purpose-tree.md·src·test·package.json만, 금지 = progress·for-me·method-feedback·사례 문서·map·커밋 메시지): 일치 16, 불일치·위험 12(중간 R1~R4, 낮음 R5~R12), 목표 위반 없음. 스크립트 `scripts/probe/sto-final-review/`(이 기록 커밋에 함께). R1·R2·R3은 내가 다시 실행해 같은 결과 [확인됨: r4 74→423ms·동시 5개 2024ms, r3 7번·10번].
 - 4. 중간 확인 보고서 `docs/for-me/STO-report.md`: 결정 항목 15개(A 위험 1~4, B 낮은 위험 5~8, C 추천 진행 승인 9~13, D 다음 순서 14~15). **사용자 답 대기.**
-- 5. `node scripts/check-method.mjs --id STO`는 보고서 커밋 뒤 실행(아래 줄).
+- 5. `node scripts/check-method.mjs --id STO`(080f5a3, 보고서 커밋 뒤) → sub-nodes ✅, big-unit-test ✅, big-unit-report ✅, big-unit-review ✅, big-unit-todo ✅.
+- 6. 사용자 답(2026-11-08): **승인** — "모두 추천대로 다음 세션에서 진행할게". 보고서 머리, method-feedback.md 승인 상태(O47~O52), 목적 나무(STO-5 추가, STO는 STO-5 뒤 ✅)에 적음.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

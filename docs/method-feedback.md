@@ -188,7 +188,7 @@
 - [x] (progress.md) STO-4 완료·check-method 결과 줄 — [AUDIT-7]
 - [x] (progress.md) "현재" 절 정리(지난 꼬리 문장, 지난 "다음", 859행 `\n`) — [AUDIT-7]
 - [x] (progress.md STO-1 "계획과 달라진 점") sto-cases.md를 바꾸지 않은 이유 — [AUDIT-7]
-- [ ] (STO-report.md) 결정 항목: S-5~S-10, 상태 0 허용(STO-3 구현 중 결정), `STORE_LIMITS`·`matchesParsed` export, STO-1~4를 Claude가 나눈 것, O47
+- [x] (STO-report.md) 결정 항목: S-5~S-10, 상태 0 허용(STO-3 구현 중 결정), `STORE_LIMITS`·`matchesParsed` export, STO-1~4를 Claude가 나눈 것, O47 — 보고서 결정 9~13, 사용자 승인(2026-11-08)
 
 ---
 
@@ -201,6 +201,7 @@
 | O18~O21 | ✅ 승인(2026-11-07, AUDIT-3 보고서 1) | INFRA-7: CLAUDE.md(O18~O20). O21은 INFRA-6에서 이미 반영 |
 | O22~O38 | ✅ 승인(2026-11-07, PRX 중간 확인 보고서 `docs/for-me/PRX-report.md` "승인"). O28은 "재배정은 보고서 항목으로"까지 넓혀 승인 | INFRA-8: CLAUDE.md(O23, O25, O26, O28~O31, O33~O38), check-method(O22, O24, O27, O32, O34, O35), method-auditor(O32, O33). O30의 보충 테스트는 다음 PRX 작은 단위 |
 | O39~O46 | ✅ 승인(2026-11-08, TLS 중간 확인 보고서 `docs/for-me/TLS-report.md` "8건 모두 승인") | INFRA-10: check-method(O39 파일 기준, O40 ⚠ 허용됨, O46 탐색·판정 요구 — VERDICT_RULE_SINCE 뒤 작업만), CLAUDE.md(O40·O44 허용 수정 절차, O41 [RULE], O42 이어 붙이기, O43 타이밍, O45 커밋 메시지, O46 [탐색]), method-auditor(O40·O44·O46 판정) |
+| O47~O52 | ✅ 승인(2026-11-08, STO 중간 확인 보고서 `docs/for-me/STO-report.md` 결정 13 "모두 추천대로") | 반영 대기 — 다음 INFRA 단위(STO-5 → STO ✅ 뒤): O47 커밋 전 메시지 형식 기계 검사, O48 커밋 전 테스트 구조 수정 기록(CLAUDE.md O36 보강), O49 "실행함, n개 실패(다음 커밋 필요)" 형식, O50 `[ID] 병합 뒤 기록` 자리 고정(+ check-method 검사), O51 판정 기준에 측정 시점, O52 큰 단위 마무리 때 -T 흐름 각 경로를 실제 클라이언트로 |
 | 감사 주기 | ✅ 승인(2026-11-07, AUDIT-3 보고서 3): PRX-1은 PR마다 감사, 그 뒤로는 큰 단위마다 감사 | INFRA-7: CLAUDE.md |
 - ai-research/decisions.md 반영은 사용자가 직접 한다.
 
@@ -282,7 +283,7 @@ PRX 큰 단위 감사가 보류 항목에 더한 근거: O26 재현 안 됨, O27
 |---|---|---|---|
 | O47 | CLAUDE.md에 "`- 검증(…):`처럼 쓰지 않는다"를 넣은(INFRA-10) 바로 다음 단위(SEC-3: 8fecd7e, a3d42f5)에서 같은 서식 위반이 또 나왔다(TLS-4c 3건에 이어). 지침만으로는 막히지 않는다 | O1, O45 | 커밋 전에 메시지 파일을 기계로 검사하는 장치(commit-msg hook, 또는 check-method의 형식 검사를 메시지 파일에 돌리는 스크립트) |
 
-### STO 큰 단위 감사에서 새로 나온 관찰 (사용자 검토 대기 — STO 보고서)
+### STO 큰 단위 감사에서 새로 나온 관찰 (승인 2026-11-08 — 승인 상태 표 참고)
 | O번호 | 관찰 | 관련 | 제안 |
 |---|---|---|---|
 | O48 | 커밋 전에 테스트 구조를 고친 경우가 세 번(STO-1 오류 5개 → assertion, STO-1 출력 가로채기 중 await, STO-4 finally에서 프록시 안 닫음). O36은 "현재 구현에 돌려 본 뒤 기대값을 바꾼 경우"만 다룬다 | 6행, O36, O2 | stub red에서 실패 유형을 맞추려고(또는 실행이 끝나지 않아) 테스트를 고쳤다면 고친 내용과 기대값 변경 여부를 테스트 커밋에 적는다고 O36에 명시 |
