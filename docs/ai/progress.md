@@ -1389,12 +1389,18 @@
   - E192 일치(0517b6b): `timeout 400 npm test` → 종료 코드 0, tests 783 / pass 783 / fail 0 / todo 0, 83초.
   - E193 **불일치**(0517b6b 코드): `timeout 180 node scripts/probe/ui5b-browser.mjs`(854d601) → Chrome/156.0.8078.80 headless(임시 프로필). ① /img.png(text/plain, 81B) 미리보기 버튼 → canvas 40×30 ✅ ② /gz "압축(gzip)을 풀었습니다: 10000바이트" ✅ ③ /gzbomb(260,934B) "10485760바이트 — 10MiB까지만" ✅, Chrome 작업 메모리 806→1107MB = **+301MB(기준 +300MB 이하 → 넘음)** ④ /bomb.png(388,871B, 20000×20000) "너무 커서" 버튼 없음, 1061→738MB ✅ ⑤ /evil.svg 미리보기 버튼 없음, 글자로, document.title 그대로 ✅ ⑥ /br "이 브라우저에서 풀 수 없어" ✅ ⑦ img 0·blob/data 0·showSaveFilePicker function ✅, **콘솔 오류 1건 "Failed to load resource: … 404"** [추측: /favicon.ico — PUBLIC 목록에 없음]. 판정: ③⑦이 기준을 못 맞춰 불일치. 원인 [추측]: ③은 10MiB 결과와 스트림 조각·16진 문자열이 함께 살아 있고 GC 전이라서, ⑦은 기준을 정할 때 브라우저의 자동 favicon 요청을 생각하지 않아서.
   - E194 [탐색] 기록: 같은 스크립트 — `Target.createTarget`으로 연 echo 서버 → `{"site":"none"}`, 대시보드 주소 → 바로 200(화면 "sumun 실시간 …"). UI-5 실측의 403은 확장(claude-in-chrome)이 연 탭의 `cross-site` 때문.
-- 계획과 달라진 점: E193 불일치(위). 실측 스크립트가 구현 뒤에 있다(854d601 — 구현 뒤에 만든 것).
+- 계획과 달라진 점: E193 불일치(위). 실측 스크립트가 구현 뒤에 있다(854d601 — 구현 뒤에 만든 것). 계획 범위의 새 `scripts/probe/ui5b-fixtures.mjs`는 만들지 않고, 목적지 fixtures를 `scripts/probe/ui5b-browser.mjs` 안에 두었다(UI 감사 경미 ②, [AUDIT-12]에서 보탬).
 - hook이 막은 것: view.js에 `cat >> … <<'EOF'`로 덧붙이고 같은 명령에서 `npm test -- test/ui/UI-5b.test.ts`를 돌리려다 "커밋된 테스트 파일은 수정할 수 없습니다" — 리다이렉트와 테스트 경로가 한 명령에 있어서. 의도한 보수적 동작(O45와 같은 종류). 임시 파일에 쓰고 명령을 나눔.
 - 미확인 갱신: "터미널 주소를 직접 열 때 Sec-Fetch-Site" — 브라우저가 연 탭은 none·200 [확인됨: E194]. 사람의 실제 클릭은 여전히 세션 밖(UI 보고서 실측).
 - 범위 밖 관찰: `/favicon.ico` 404(server.ts PUBLIC 목록) → UI 보고서 결정 항목.
 - UI 보고서 결정 항목: `docs/for-me/UI-5b.md` "UI 보고서에 올릴 결정".
 - [UI-5b] 완료: dd1d375..70eda08, 병합 9cc16d6. `node scripts/check-method.mjs --id UI-5b`(9cc16d6) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). UI 하위 노드 모두 끝 → UI 🔨 확인 대기. 다음: UI 큰 단위 끝(전체 테스트 → method-auditor → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md` → `check-method --id UI`).
+
+### [UI] 큰 단위 끝
+- 근거: 사용자 지시(2026-11-08) "이어서 해". CLAUDE.md 큰 단위 "끝낼 때" 1~5.
+- 한 줄 보고: 목표 = UI 큰 단위를 끝내고 보고서로 사용자 확인을 받는다 / 범위 = `docs/ai/progress.md`, `docs/method-feedback.md`(감사 기록·O55~O61), 새 `docs/for-me/UI-report.md`, 새 `scripts/probe/ui-report/browser.mjs`(O52 실측), 새 `scripts/probe/ui-final-review/`(검토 에이전트 스크립트) / 하지 않을 것 = 코드·테스트 수정, Windows 인증서 저장소 변경, UI ✅ 표시(보고서 승인 뒤, O37).
+- 1 전체 테스트 [확인됨]: e8e5a9d에서 `timeout 400 npm test` → tests 783 / pass 783 / fail 0 / todo 0, 78초.
+- 2 감사: method-auditor에 "UI"만 넘김 → `docs/method-feedback.md` "[UI] 큰 단위 감사". 하위 노드 8개 ✅, 경미 5건, 관찰 O55~O61. 경미 ②는 [UI-5b] "계획과 달라진 점"에 보탰다.
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
