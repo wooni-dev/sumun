@@ -624,7 +624,8 @@
   - E99 일치(대체 경로, 8f32bb5): `node scripts/probe/tls4-curl.mjs` → curl --cacert만으로는 "(60) schannel: the revocation status is unknown", --ssl-no-revoke면 example.com 200. 믿을 수 없는 로컬 목적지는 502.
 - 계획과 달라진 점: cli.ts의 formatSummary는 바꾸지 않음(https 기록도 지금 모양으로 충분). 구현 결함 2개를 이 PR 안에서 고침(주소 목록, 핸드셰이크 판정). 테스트 결함으로 멈췄다 재개. 실측 스크립트 3개 추가(tls4-test-defects, tls4-curl, tls4-curl-revoke).
 - TLS-4b에 넘길 것: 불투명 터널의 첫 주소만 연결(범위 밖 기록), 핸드셰이크 뒤 클라이언트가 끊은 CONNECT 기록에 오류 코드가 없음(curl 실측 1번), 배정 "4b" 전부, B4(SNI가 IP). SEC-3에 넘길 것: 폐기 확인(CRL·OCSP 없음 — curl은 --ssl-no-revoke 필요), 실제 브라우저(H1·H4).
-- [TLS-4] 완료: 232991f..(문서 커밋). 다음: TLS-4b.
+- [TLS-4] 완료: 232991f..6299aee + 이 기록 커밋. 다음: TLS-4b.
+- `node scripts/check-method.mjs --id TLS-4` → 11개 중 10 ✅, test-unchanged ❌(9d8a528 — 사용자 허용으로 고친 테스트가 잡힘, 의도대로). `--id TLS-3`도 test-unchanged ❌(b1334f4 — 사용자 결정으로 E45 판정 방식을 바꿈) [확인됨]. 둘 다 TLS 큰 단위 감사·보고서에 올린다.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
