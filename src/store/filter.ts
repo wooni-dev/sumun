@@ -12,6 +12,7 @@ export type Filter = { host?: string; method?: string; status?: number; after?: 
 type HostQuery = { host: string; port?: number; ip: boolean } | 'never';
 export type ParsedFilter = { host?: HostQuery; method?: string; status?: number; after?: number; limit?: number };
 
+const FILTER_KEYS = new Set(['host', 'method', 'status', 'after', 'limit']);
 const bad = (what: string) => new TypeError(`필터 조건 ${what}의 형식이 올바르지 않습니다.`);
 
 // 소문자, 끝 점 제거, URL 규칙(IPv6 대괄호·표기, 국제화 도메인 → punycode, 숫자 IPv4 → 점 표기). 해석할 수 없으면 undefined
@@ -64,6 +65,9 @@ export function parseFilter(f: unknown): ParsedFilter {
   if (f === undefined || f === null) return {};
   if (typeof f !== 'object' || Array.isArray(f)) throw new TypeError('필터는 객체여야 합니다.');
   const o = f as Record<string, unknown>;
+  // [STO-5] R7: 모르는 조건 이름(오타)이 조용히 "전체"가 되지 않게 한다. 자기 속성만 본다(상속 속성은 조건이 아니다).
+  //   문구는 고정 — 이름·값이 사용자 입력이므로 넣지 않는다(E2와 같은 규칙)
+  for (const key of Object.keys(o)) if (!FILTER_KEYS.has(key)) throw new TypeError('필터 조건 이름을 알 수 없습니다.');
   const out: ParsedFilter = {};
   if (o.host !== undefined && o.host !== '') {
     if (typeof o.host !== 'string') throw bad('host');

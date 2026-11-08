@@ -258,6 +258,8 @@ export function createStore(options?: StoreOptions): Store {
     return undefined;
   }
   // S-1·S-2: 진행 중 → 완료 건수 → 바이트 순으로 상한을 맞추고, 뺀 id를 그 넣기의 알림 뒤에 한 번에 알린다
+  // [STO-5] 바이트는 먼저 들어온 완료부터 뺀다. 남길 완료가 없는데도 넘칠 때만 진행 중을 뺀다(R2 — 오래 걸리는 요청이 바이트로 사라지지 않게,
+  //   사용자 답 2026-11-08 "완료 먼저, 그다음 진행 중"). 진행 중 하나는 헤더 16KB 제한 때문에 약 33KB 이하라 메모리는 거의 그대로다
   function enforce(keep: number) {
     const out: number[] = [];
     const drop = (id: number | undefined) => {
@@ -268,7 +270,7 @@ export function createStore(options?: StoreOptions): Store {
     };
     while (pendingCount > limits.maxPending && drop(oldest(keep, 'pending')));
     while (entries.size - pendingCount > limits.maxFlows && drop(oldest(keep, 'done')));
-    while (bytes > limits.maxBytes && drop(oldest(keep)));
+    while (bytes > limits.maxBytes && drop(oldest(keep, 'done') ?? oldest(keep, 'pending')));
     if (out.length) emit({ type: 'evicted', ids: out.sort((a, b) => a - b) });
   }
 
