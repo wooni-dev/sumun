@@ -224,6 +224,7 @@ export async function startProxy({
     const headers = stripHopByHop(req.headers);
     headers.via = addVia(req.headers.via);
     let upstream: http.ClientRequest;
+    let upstreamSocket: Socket | undefined;
     if (route) {
       const misdirected = checkRoute(req, target, route);
       if (misdirected) return refuse(misdirected);
@@ -250,6 +251,7 @@ export async function startProxy({
         headers,
         agent: false,
       });
+      upstream.once('socket', (s) => (upstreamSocket = s)); // [TLS-4c] 오류가 났을 때 인증서 검증 실패인지 본다(아래 'error')
     } else {
       const checked = validateTarget(target);
       if ('status' in checked) return refuse(checked);
@@ -298,7 +300,11 @@ export async function startProxy({
       // [PRX-3] 결정 10: 응답은 왔지만 HTTP로 해석할 수 없으면(Node의 HPE_* 오류) bad-response, 연결 자체가 안 되면 unreachable
       // [확인됨: scripts/probe/prx3-errcode.mjs — 깨진 상태 줄 HPE_INVALID_CONSTANT, 헤더 초과 HPE_HEADER_OVERFLOW, 닫힌 포트 ECONNREFUSED]
       // [TLS-4] 목적지 인증서를 믿을 수 없으면 중계하지 않고 터널 안에서 502(사용자 결정 4). 가짜 인증서로 실패를 가리지 않는다(Durumeric 외 2017)
-      if (route && CERT_ERRORS.has(err.code ?? '')) {
+      // [TLS-4c] 결정 D-5: 목록(CERT_ERRORS) 밖이어도 Node가 인증서 검증으로 실패시켰으면 bad-certificate. 이름 제약 위반·모르는 critical 확장·SHA-1·약한 키는
+      // 모두 UNSPECIFIED로 온다. 검증 실패면 목적지 TLS 소켓의 authorizationError에 코드가 남고, 목적지가 우리에게 보낸 경고·RST에서는 비어 있다
+      // [확인됨: scripts/probe/tls4c-classify.mjs E113 — 13사례]
+      const verifyFailed = !!(upstreamSocket as tls.TLSSocket | undefined)?.authorizationError;
+      if (route && (verifyFailed || CERT_ERRORS.has(err.code ?? ''))) {
         upstreamError = safeCode(err.code);
         fail({ by: 'upstream', code: 'bad-certificate', status: 502 });
         return reply(res, 502, '502 Bad Gateway: 목적지 서버의 인증서를 믿을 수 없습니다.');
@@ -323,6 +329,10 @@ export async function startProxy({
   const certs = ca && createCertCache(ca);
   const inner = ca && http.createServer({ headersTimeout: headersTimeoutMs, requestTimeout: 0, connectionsCheckingInterval: Math.max(50, Math.min(1000, Math.floor(headersTimeoutMs / 2))) });
   if (inner) {
+    // [TLS-4c] 결함 1: Node는 headersTimeout을 재는 주기 검사를 'listening' 때 시작한다. 안쪽 서버는 listen하지 않으므로(포트를 더 열지 않는다)
+    // 검사가 돌지 않아 터널 안의 유휴·느린 헤더 연결이 닫히지 않았다 [확인됨: scripts/probe/tls4c-cause.mjs E110 — 'listening'을 emit하면 h에 닫힘].
+    // 그래서 직접 emit해 검사만 켠다. Node 내부 동작에 기대므로 TLS-4c 테스트(I1~I9)가 Node를 올릴 때 깨지는지 지켜본다. 검사 타이머는 unref이고 close()의 inner.close()가 정리한다
+    inner.emit('listening');
     inner.on('request', (req, res) => {
       const route = routeOf(req.socket);
       if (!route) return res.destroy(); // 이 서버에는 openMitm이 넘긴 소켓만 온다
@@ -330,7 +340,17 @@ export async function startProxy({
     });
     // 사례 E4: 터널 안의 CONNECT(중첩 터널)는 받지 않는다
     inner.on('connect', (_req, socket: Socket) => writeRefusal(socket, 400, '터널 안에서는 CONNECT를 쓸 수 없습니다.', VIA_ID));
-    inner.on('clientError', (_e, socket) => socket.destroy());
+    // [TLS-4c] 결정 D-2: 헤더 제한에 걸리면 평문 프록시(Node 기본 처리)처럼 408을 보내고 닫는다. 그 밖의 해석 오류는 지금처럼 바로 닫는다.
+    // 응답을 보내는 중이면(파이프라이닝으로 앞 요청이 진행 중) 408을 끼워 넣지 않고 닫는다 — 결정 D-4(평문과 같게)
+    inner.on('clientError', (e: NodeJS.ErrnoException, socket: Socket) => {
+      if (e.code !== 'ERR_HTTP_REQUEST_TIMEOUT') return socket.destroy();
+      const route = routeOf(socket);
+      if (route) route.timedOut = true;
+      const busy = (socket as Socket & { _httpMessage?: { headersSent?: boolean } })._httpMessage?.headersSent;
+      if (!socket.writable || busy) return socket.destroy();
+      socket.end('HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n'); // Node 기본 처리와 같은 응답
+      setTimeout(() => socket.destroy(), 1000).unref(); // 클라이언트가 끝을 받지 않아도 붙잡히지 않게
+    });
   }
 
   // CONNECT(HTTPS 터널)는 TLS 단계에서 만든다. 처리기가 없으면 Node는 응답 없이 연결을 끊으므로(실측), 501을 직접 보낸다 (C18)
@@ -413,6 +433,7 @@ export async function startProxy({
   return {
     port: selfPort,
     address: () => server.address() as AddressInfo,
-    close: () => new Promise<void>((resolve) => (server.closeAllConnections(), inner?.closeAllConnections(), tunnels.forEach((s) => s.destroy()), server.close(() => resolve()))),
+    // inner.close(): [TLS-4c] 'listening'으로 켠 검사 타이머를 멈춘다(listen하지 않은 서버라 close 콜백에는 오류가 오지만 쓰지 않는다)
+    close: () => new Promise<void>((resolve) => (server.closeAllConnections(), inner?.closeAllConnections(), inner?.close(() => {}), tunnels.forEach((s) => s.destroy()), server.close(() => resolve()))),
   };
 }
