@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [STO-2] 보관 상한(브랜치 feat/STO-2). STO-1 완료. STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
+- 작업: [STO-2] 완료(브랜치 feat/STO-2 → 병합). 다음: STO-3. STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -880,6 +880,14 @@
   - E142: 새 동작 테스트는 지금 구현(STO-1, 상한 없음 — 새 모듈이 아니라 stub 없음)에서 모두 assertion 실패, 오류 0. 판정: 실패 수 = 새 동작 테스트 수, 오류 0.
   - E143: 구현 뒤 `npm test` 실패 0, "큰 단위 대기(todo) STO: 2개". 판정: 둘 다.
   - E144: 기본 상한 저장소에 서로 다른 본문(요청·응답 각 1MiB) 기록 400건(약 800MiB)을 넣고 gc 뒤 `process.memoryUsage().arrayBuffers` 증가가 **300MB 이하**, 남은 건수가 **120~128건**(256MiB ÷ 약 2MiB). 판정: 둘 다면 일치(`node --expose-gc scripts/probe/sto2-memory.mjs`).
+- 실측 (명령 원문):
+  - E142 일치(9bda9a1): `npm run test:red -- test/sto/STO-2.test.ts`(STO-1 구현) → 11개 모두 assertion 실패, 오류 0.
+  - E143 일치(a5533f4): `npm test` → tests 622 / pass 620 / fail 0 / todo 2, "큰 단위 대기(todo) STO: 2개, 그중 실패 2개".
+  - E144 일치(a5533f4): `node --expose-gc scripts/probe/sto2-memory.mjs` → 끝: 남은 127건, stats.bytes 254MiB, arrayBuffers 증가 254MiB. 관찰: 중간 300건 시점은 +313MiB(판정 기준은 끝 상태) — 뺀 본문의 외부 메모리를 gc 직후 바로 돌려주지 않는 것으로 보인다 [추측]. 저장소가 참조를 남기지 않는 것은 A6 테스트가 본다.
+- 실제 클라이언트 실측(O31): 이 단위도 프록시에 연결하지 않는다 → STO-4에서.
+- hook 기록(O25): `sed -i`(src 파일)와 `npm test -- test/…`를 한 명령에 이어 쓰다 막힘 — 의도한 보수적 동작. 명령을 나눴다.
+- 계획과 달라진 점: `STORE_LIMITS`·`StoreOptions`를 export(설계 지도·다음 단위에서 기본값을 보려고). 회귀 파일 없음.
+- 범위 밖 관찰: 없음.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
