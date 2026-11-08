@@ -1428,6 +1428,14 @@
   - E197(O31, 실제 브라우저 = headless Chrome 156, `scripts/probe/ui6-browser.mjs`): ① 필터(상태 200) 켠 채 0.15초마다 요청 4초 → 4초 동안 "필터 결과 n건"이 **3번 이상** 늘고, 끝난 뒤 1.5초 안에 전체 수와 같다 ② 연 뒤 주소에 `#` 없음, `history.state === null`, `window.name === ''`, `history.length` 그대로 ③ 대시보드를 다시 시작해 같은 탭에 새 주소로 이동 → "실시간"이 되고 주소에 `#` 없음 ④ 새로고침 → 문구에 "새로고침" ⑤ 콘솔 오류 0, `/favicon.svg` 200 ⑥ 헤더 값 UTF-8 `‮`(E2 80 AE) → 상세에 `⟨U+202E⟩`와 "UTF-8로 풀어 보임", 실제 U+202E 글자 0 ⑦ 터널 T1(데이터 뒤 RST) 상세 "끝남", T5(목적지가 끊음) 목록 "터널 실패" ⑧ 다른 출처 링크 → 403 문구가 "터미널에 나온"으로 시작 ⑨ Chrome `--proxy-bypass-list=<-loopback>;127.0.0.1:<D>;localhost:<D>` → 대시보드가 열리고 127.0.0.1 개발 서버 요청이 기록된다. 판정: 아홉 다면 일치. 시점: ①은 버스트 도중 표본(0.5초마다)과 끝난 뒤 1.5초.
   - E198 [탐색]: 바꾼 뒤 Chrome 프로필(History, Sessions, Top Sites, Favicons)에 토큰이 남는 곳(K14의 한계 확인).
 
+- 실측 (명령 원문):
+  - E195 일치(6eb68c0 커밋 전, stub = view.js 끝에 createRefresher(빈 request·now)·tunnelOutcome·utf8View): `npm run test:red -- test/ui/UI-6.test.ts` → tests 10 / fail 10, 모두 AssertionError, 오류 0. `npm test -- test/ui/UI-6-regression.test.ts` → 3 / 3.
+  - 중간 1(8c62471, view.js): `npm test -- test/ui/UI-6.test.ts test/ui/UI-5.test.ts test/ui/UI-5b.test.ts` → 34 중 29, 5 실패(다른 파일 필요). 커밋 전 문제: Write 도구가 ` ` 같은 이스케이프를 글자로 바꿔 정규식 리터럴에 줄 구분 문자가 들어감 → `String.fromCharCode(92)`로 이스케이프를 만들어 다시 씀, 숨은 글자 0개 확인.
+  - 중간 2(13ff6ed, server.ts 쪽): `npm test -- test/ui/UI-6.test.ts test/ui/UI-6-regression.test.ts test/ui/UI-1.test.ts test/ui/UI-1-regression.test.ts test/ui/UI-2.test.ts test/ui/UI-T.test.ts` → 37 중 34, 3 실패(다음 커밋 필요). 두 번째라 남은 구현을 889bc1e 하나로(O53).
+  - 889bc1e: `npm test -- test/ui/UI-2.test.ts test/ui/UI-6.test.ts` → 18 / 18(두 번). **E196 불일치**: `timeout 400 npm test`(두 번) → 796 중 795, 1 실패 `test/ui/UI-2.test.ts:172` "CONNECT(불투명 터널): … 대시보드에 연결하지 않는다"(가짜 대시보드 서버에 누가 연결함). UI-2 혼자 세 번 8/8. UI-6.test.ts만 뺀 전체 `node scripts/test.mjs <git ls-files 83개>` → 786 / 786.
+- **테스트 결함(멈춤 — 사용자 확인 대기)**: 원인 [추측] — UI-6 "터미널 안내(G-7, K28)" 테스트가 방금 비운 임시 포트 P로 `npm start`를 띄우고, 시작 때 포트 점유 검사가 P+1(기본 대시보드 포트)에 연결한다. Windows는 포트를 연속 번호로 주므로 병렬로 도는 UI-2 테스트의 가짜 대시보드(포트 0으로 받은 임시 포트)와 겹친다. 지난 세션 교훈("테스트 포트는 임시 포트 범위 49152~ 밖에서")을 이 테스트에 지키지 않았다. 고치려면 `test/ui/UI-6.test.ts`의 포트 선택을 임시 포트 범위 밖(P와 P+1이 모두 빈 곳)으로 바꿔야 한다 → "테스트 수정 허용" 필요.
+- hook이 막은 것: ① 메시지 파일을 같은 명령에서 sed로 고치고 변수 경로로 커밋 → 규칙 C(의도한 보수적 동작, Edit 도구 + 절대 경로로 나눔) ② node 스크립트의 `>=`와 테스트 경로를 한 명령에 → "테스트 수정"으로 봄(의도한 보수적 동작, O45와 같은 종류 — 명령을 나눔).
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
