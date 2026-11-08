@@ -1279,6 +1279,31 @@
 - hook 알림(2026-11-08, 규칙 D 실행 뒤 검사 — INFRA-13): `feat/UI-3`에서 `git rebase main`(충돌은 progress.md 한 곳, 두 블록 모두 남김) → `git -c core.editor=true rebase --continue` 뒤 "명령 중 브랜치가 바뀐 뒤 커밋이 생겼습니다(명령 전 detached → 지금 feat/UI-3): f805543, f8c9730, 861fe21, fa7a8ee". 이 네 커밋은 UI-3의 26fe94b·51e5799·4b055fa·4a74056을 main(f7cbb52) 위로 다시 만든 것이고 제목은 모두 `[UI-3]`이다 [확인됨: git log]. rebase 중에는 HEAD가 detached라 검사가 브랜치 변경으로 본 것으로 보인다 [추측] — 의도한 보수적 동작인지 오탐(수정 대상)인지는 사용자 판단. 규칙대로 고치지 않고 멈춤, 되돌릴지 사용자에게 여쭘.
   - 사용자 결정(채팅 "A로 해"): 그대로 둔다. 이번 알림은 의도한 보수적 동작으로 기록. rebase를 hook이 다르게 다룰지는 UI 보고서 결정 항목.
 
+### [UI-4] 계획
+- 근거: 사용자 지시(2026-11-08, /clear 뒤) "이어서 해" — 지난 세션이 정한 다음 일 [UI-4]. 배정 `docs/ai/ui-cases.md` "UI-4"(U3, U32~U34, U36, U38), 결정 D-4(SSE를 fetch 스트림으로)·D-13(연결 16, 구독자 버퍼 1MiB), STO 보고서 결정 1(구독자는 큐에 넣고 바로 반환). 접근 검사는 UI-1의 guard·토큰이 이미 하고, 이 단위는 그 뒤의 경로와 자원 상한만 더한다 — 사례는 UI-T 계획 때 받은 것을 쓴다(UI-1·UI-3과 같은 방식, O10) [추측: 새 차단 규칙이 아니라 자원 상한이라고 판단].
+- 미확인 항목(O13): 변화 없음(모두 세션 밖 조건 — ai-research Read 규칙, Ctrl+C 종료, 예약 포트 EACCES, 브라우저 loopback 예외).
+- UI-T가 고정한 모양 [확인됨: test/ui/UI-T.test.ts 58~87, 248~256, 304]: `GET /api/events`(Authorization: Bearer) → 200 `text/event-stream`, 줄 `data: <JSON>`, 새 요청 뒤 `{ type: 'done', summary: { url … } }`가 온다, 알림에 본문 없음, 다른 Origin이면 403.
+- 설계 [추측]:
+  - 새 `src/dashboard/events.ts` `createEventHub(store, { maxStreams, bufferBytes, heartbeatMs })` → `{ open(res): boolean, close(), stats() }`. 기본 `EVENT_LIMITS = { maxStreams: 16, bufferBytes: 1MiB, heartbeatMs: 15_000 }`(D-13).
+  - 검사 뒤 수락(U32): server.ts가 guard·토큰을 통과한 `GET /api/events`만 `open`에 넘긴다. 다른 메서드는 405 + `Allow: GET`. 거절된 요청은 자리를 쓰지 않는다. 자리가 차면 503 고정 문구(새 연결을 거절 — 오래된 연결을 끊지 않는다).
+  - 응답: 200 `text/event-stream; charset=utf-8`(+ UI-1 보안 헤더·no-store). 첫 메시지 `data: {"type":"hello","runId":…}`. 그 뒤 저장소 알림을 그대로(`start`·`done` 요약, `evicted`, `cleared` — 본문·헤더 없음, STO S-4) `id: <실행 안 일련번호>` + `data: <JSON>`으로. 하트비트 주석 줄 `: ping`을 heartbeatMs마다.
+  - 큐에 넣고 바로 반환(STO 결정 1, U38): 허브는 저장소를 **한 번만** 구독하고(연결이 1개 이상일 때만), 알림을 배열에 넣고 바로 돌아온다. `setImmediate`에서 모인 알림을 한 번 JSON으로 바꿔 모든 연결에 같은 덩어리를 쓴다(연결 수만큼 직렬화하지 않음).
+  - 느린 구독자(U33): 쓴 뒤 그 연결의 `writableLength`가 bufferBytes를 넘으면 그 연결만 끊는다. 다른 연결은 계속 받는다.
+  - 재연결(U34): 서버는 지난 알림을 다시 보내지 않는다. 연결마다 hello(runId)를 먼저 보내고, 화면(UI-5)이 hello를 받으면 목록을 API로 다시 받는다. runId가 바뀌면 "새 실행"(F10). 끊긴 동안의 evicted·cleared도 목록을 다시 받아 맞춘다.
+  - 출처당 6연결(U36): 서버로는 막을 수 없다(브라우저의 HTTP/1.1 연결 수). 화면은 탭마다 스트림 1개 — UI-5 규칙과 UI 보고서 결정 항목으로.
+  - close(): 하트비트 타이머·구독을 풀고 열린 스트림을 끝낸다(대시보드 close가 바로 끝나게).
+  - → 결정 항목(UI 보고서): 자리가 차면 새 연결 거절(503), 다시 보내기(replay) 없이 hello 뒤 목록 다시 받기, 하트비트 15초.
+- 한 줄 보고: 목표 = 대시보드가 저장소 알림을 토큰 있는 SSE 연결에 실시간으로 보내되, 연결 수·느린 연결·알림 처리 비용에 상한을 둔다 / 범위 =
+  - 새 `src/dashboard/events.ts`: `createEventHub()`, `EVENT_LIMITS`
+  - `src/dashboard/server.ts`: `/api/events` 분기(GET만, 자리 없으면 503), `TEXT[503]` 고정 문구, `startDashboard({ events })` 옵션, close()에서 허브 닫기
+  - 새 `test/ui/UI-4.test.ts`(새 동작), 새 `test/ui/UI-4-regression.test.ts`(구현 전에도 통과해야 정상 — /api/events도 토큰 없으면 401, 다른 Origin·cross-site·Via sumun 403, O9)
+  - `docs/ai/map.md`, `docs/for-me/UI-4.md`, `docs/ai/progress.md`, `docs/ai/purpose-tree.md`
+  - 하지 않을 것 = 화면(UI-5), 저장소(src/store) 변경, 다시 보내기(Last-Event-ID), WebSocket, 기존 테스트 수정
+- 예상 [추측] (판정 기준 포함):
+  - E185: stub = events.ts의 `createEventHub`가 `open`은 false, `close`·`stats`는 빈 동작(server.ts는 아직 부르지 않음 → /api/events는 지금처럼 404). `npm run test:red -- test/ui/UI-4.test.ts` → 새 동작 테스트가 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-4-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E186: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, "큰 단위 대기(todo) UI: 2개", 5분 안. 판정: 넷 다면 일치.
+  - E187(O31, 실제 클라이언트): 목적지 `node -e`(127.0.0.1:18090, E180과 같은 명령), `npm.cmd start -- --port 18080`(대시보드 18081). `curl.exe -s -N -H "Authorization: Bearer <토큰>" http://127.0.0.1:18081/api/events`를 백그라운드로 열어 둔 채 `curl.exe -s -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:18090/x` → 스트림 출력에 hello(runId), 같은 id의 start·done(url `/x`)이 있고 `CURL-COOKIE`·`curl-body`는 없다. 토큰 없이 같은 주소 → 401. 판정: 셋 다면 일치.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
