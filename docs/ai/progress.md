@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). **[INFRA-11]**(O47 커밋 메시지 hook) 완료, 지금 **[INFRA-12]**(O48~O54 지침 + check-method merge-record) 진행 중, 다음 [INFRA-13](O54 기계 검사), 그다음 아래 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
+- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). **[INFRA-11]**(O47 커밋 메시지 hook) 완료, **[INFRA-12]**(O48~O54 지침 + check-method merge-record) 완료, 다음 [INFRA-13](O54 기계 검사 — hook이라 검토 사례 먼저), 그다음 UI 큰 단위, 그다음 아래 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
 - 지난 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 8b494f4. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
   - 이번 세션에 끝낸 것: 사용자 확인 3건(SEC-3 테스트 수정 허용, O47 보류, 예전 프로세스 종료) → SEC-3 테스트 수정(c8b1b43) → STO-T → STO-1 → STO-2 → STO-3 → STO-4 → STO 감사(AUDIT-7)·검토·보고서(AUDIT-8) → **STO 보고서 승인**(결정 1~15 모두 추천대로, 이 기록 커밋).
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
@@ -1051,7 +1051,8 @@
   - E159 일치(ba911c9 커밋 전, 코드 c7c0522): `npm run test:red -- test/infra/check-method-infra12.test.mjs` → tests 7 / fail 7, 모두 AssertionError, 오류 0. `npm test -- test/infra/check-method-infra12-regression.test.mjs` → 3 / 3.
   - E160 일치(2eba73a): `npm test` → tests 684 / pass 684 / fail 0 / todo 0.
   - E161 일치(2eba73a): `node scripts/check-method.mjs --id STO-5` → 기존 11개 ✅, merge-record ➖ "규칙 도입 전 작업이라 건너뜀(도입 커밋 c7c0522)". `--id STO` → merge-records ✅ "병합 뒤 기록이 빠진 하위 노드 없음".
-  - E162: 병합 뒤 기록 커밋에서 적는다.
+  - E162 앞 절반 일치(1838f29, 병합 직후): `node scripts/check-method.mjs --id INFRA-12` → merge-record ➖ "기록 대기 — 이 결과를 `[INFRA-12] 병합 뒤 기록: …` 커밋으로 진행 기록에 남긴다(O50)". 뒤 절반(기록 커밋 뒤 ✅)은 이 커밋 자체를 만든 뒤에야 잴 수 있어 여기 적을 수 없다(O4와 같은 자기 참조) — 결과는 다음 계획 커밋(INFRA-13)의 진행 기록에 적는다.
+- [INFRA-12] 완료: c7c0522..(문서 커밋), 병합 1838f29. `node scripts/check-method.mjs --id INFRA-12`(1838f29) → 10개 ✅, tree-updated ➖, predictions-measured ❌(E162를 아직 적지 않음 — 이 기록 커밋에서 적음), merge-record ➖ 기록 대기. 이 줄이 첫 `[ID] 병합 뒤 기록` 커밋이다(O50).
 - 계획과 달라진 점: 없음. 구현 첫 실행에서 문구 차이로 2개 실패 → 구현 문구를 고침(b89a49d 메시지). CLAUDE.md 편집에서 O50 항목을 원래 줄 중간에 끼운 것을 커밋 전에 diff로 찾아 고침(2eba73a 메시지).
 - 범위 밖 관찰: 없음.
 
