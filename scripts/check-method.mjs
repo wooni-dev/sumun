@@ -17,6 +17,12 @@ const TREE = 'docs/ai/purpose-tree.md';
 
 // 계획 커밋 규칙이 처음 적용된 커밋(INFRA-3 계획). 이보다 앞선 작업은 plan-first를 판정하지 않는다(O14)
 export const PLAN_RULE_SINCE = '77161c18e74d265ac56eeca3d8bd3863f621ece5'; // [INFRA-7] 커밋이 늘어도 모호하지 않게 전체 해시로
+// [INFRA-10] O46: 예상마다 실측 기록에 판정(일치/불일치)을 요구하기 시작한 커밋(INFRA-10 계획). 이보다 앞선 작업은 판정 없는 기록도 통과
+export const VERDICT_RULE_SINCE = '6228f889ed039226533e4e1f3190272c80019260';
+
+// [INFRA-10] O40: 사용자가 허용한 테스트 수정 = 제목에 "(사용자 허용"이 있고, progress.md의 한 줄에 그 커밋 해시(앞 7자)와 "허용"이 함께 있다
+const allowedFix = (x, progressText) =>
+  /\(사용자 허용/.test(x.subject) && (progressText ?? '').split('\n').some((l) => l.includes(x.hash.slice(0, 7)) && l.includes('허용'));
 
 // [INFRA-8] O34: "## 먼저 볼 코드" 절과 그 안의 `파일:줄`
 // 파일 부분은 경로(/ 포함)이거나 확장자(.md, .mjs …)로 끝나야 한다. 127.0.0.1:8080, localhost:3000, http://… 은 제외 (INFRA-7)
@@ -28,7 +34,10 @@ function codeSection(docText) {
 
 // basis(O22) = 이 규칙을 어느 시점의 상태로 판정했는가
 //   작업 커밋: 이 ID의 커밋들 / 마지막 커밋: 이 ID의 마지막 커밋 / 문서 커밋: 사용자용 문서를 마지막으로 바꾼 커밋 / HEAD: 지금
-export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true, progressSection, docAtCommit, readLine }) {
+//   laterCommits(O39) = 이 노드 첫 커밋 뒤 저장소의 모든 커밋(다른 ID 포함, 오래된 순). 없으면 이 ID의 커밋만 본다
+//   progressText(O40) = HEAD의 progress.md 전체, verdictRuleApplies(O46) = 판정 요구 규칙이 이 작업에 적용되는가
+// 결과 ok: true ✅ / false ❌ / null ➖ 건너뜀 / 'warn' ⚠ 허용됨(위반 아님 — 사용자가 허용한 테스트 수정, O40)
+export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true, progressSection, docAtCommit, readLine, laterCommits, progressText, verdictRuleApplies = false }) {
   const results = [];
   const add = (rule, ok, detail, basis = '작업 커밋') => results.push({ rule, ok, detail, basis });
 
@@ -54,9 +63,14 @@ export function checkCommits({ id, commits, docExists, docText, planRuleApplies 
   const testCommits = commits.filter((x) => x.subject.includes(TEST_COMMIT)).length;
   add('test-commits-test-only', dirtyTests.length === 0, dirtyTests.length ? `test/ 밖을 바꾼 테스트 커밋 → ${dirtyTests.join(', ')}` : `테스트 커밋 ${testCommits}개 모두 test/만 변경`);
 
+  // [INFRA-10] O39: 커밋 이름이 아니라 파일 기준 — 다른 ID 이름의 커밋이 이 노드의 테스트 파일을 바꿔도 잡는다(9d8a528이 [TLS-4] 이름으로 TLS-T를 고친 사례)
   const testFiles = new Set((first?.files ?? []).filter((f) => f.startsWith('test/')));
-  const touched = rest.slice(1).flatMap((x) => x.files.filter((f) => testFiles.has(f)).map((f) => `${x.hash}: ${f}`));
-  add('test-unchanged', touched.length === 0, touched.length ? `테스트 커밋 이후 변경됨 → ${touched.join(', ')}` : `테스트 파일 ${testFiles.size}개 변경 없음`);
+  const later = (laterCommits ?? rest.slice(1)).filter((x) => x.hash !== first?.hash);
+  const touchers = later.filter((x) => x.files.some((f) => testFiles.has(f)));
+  const listOf = (xs) => xs.flatMap((x) => x.files.filter((f) => testFiles.has(f)).map((f) => `${x.hash}${allowedFix(x, progressText) ? '(허용)' : ''}: ${f}`)).join(', ');
+  if (!touchers.length) add('test-unchanged', true, `테스트 파일 ${testFiles.size}개 변경 없음`);
+  else if (touchers.every((x) => allowedFix(x, progressText))) add('test-unchanged', 'warn', `사용자가 허용한 수정만 있음(O40) → ${listOf(touchers)}`);
+  else add('test-unchanged', false, `테스트 커밋 이후 변경됨 → ${listOf(touchers)}`);
 
   const badMsg = commits.filter((x) => !/^- 왜:/m.test(x.body) || !/^- 검증:/m.test(x.body)).map((x) => x.hash);
   add('message-format', badMsg.length === 0, badMsg.length ? `"왜/검증" 누락 → ${badMsg.join(', ')}` : `${commits.length}개 커밋 모두 형식 준수`);
@@ -87,10 +101,20 @@ export function checkCommits({ id, commits, docExists, docText, planRuleApplies 
     const at = lines.findIndex((l) => /^- 실측/.test(l));
     const before = at < 0 ? lines : lines.slice(0, at);
     const after = at < 0 ? '' : lines.slice(at).join('\n');
-    const predicted = [...new Set(before.flatMap((l) => [...l.matchAll(/^\s*-\s*\**(E\d+)\b/g)].map((m) => m[1])))];
-    const missing = predicted.filter((e) => !new RegExp(`\\b${e}\\b`).test(after));
+    // [INFRA-10] O46: 예상 줄에 [탐색]이 있으면 탐색(결과를 모르고 기록하려는 것) — 판정을 요구하지 않고 근거에 따로 적는다
+    const preds = before.flatMap((l) => [...l.matchAll(/^\s*-\s*\**(E\d+)\b/g)].map((m) => ({ e: m[1], explore: l.includes('[탐색]') })));
+    const predicted = [...new Set(preds.map((p) => p.e))];
+    const explore = predicted.filter((e) => preds.some((p) => p.e === e && p.explore));
+    const normal = predicted.filter((e) => !explore.includes(e));
+    const has = (e) => new RegExp(`\\b${e}\\b`);
+    const missing = predicted.filter((e) => !has(e).test(after));
+    // 판정 = 그 E번호가 있는 실측 줄에 "일치" 또는 "불일치"
+    const noVerdict = verdictRuleApplies ? normal.filter((e) => !missing.includes(e) && !after.split('\n').some((l) => has(e).test(l) && /일치/.test(l))) : [];
+    const ok = `예상 ${normal.join(', ') || '없음'} 모두 실측 기록 있음${explore.length ? ` / 탐색 ${explore.join(', ')} 기록 있음` : ''}`;
     if (!predicted.length) add('predictions-measured', null, '예상 E번호 없음', 'HEAD');
-    else add('predictions-measured', missing.length === 0, missing.length ? `실측 기록 없음 → ${missing.join(', ')}` : `예상 ${predicted.join(', ')} 모두 실측 기록 있음`, 'HEAD');
+    else if (missing.length) add('predictions-measured', false, `실측 기록 없음 → ${missing.join(', ')}`, 'HEAD');
+    else if (noVerdict.length) add('predictions-measured', false, `실측 기록에 판정(일치/불일치) 없음 → ${noVerdict.join(', ')} (결과만 기록하려면 예상에 [탐색], O46)`, 'HEAD');
+    else add('predictions-measured', true, ok, 'HEAD');
   }
 
   const progress = commits.some((x) => x.files.includes(PROGRESS));
@@ -111,7 +135,10 @@ export function checkBigUnit({ id, subnodes, reportText, lastRun }) {
   const results = [];
   const add = (rule, ok, detail, basis = 'HEAD') => results.push({ rule, ok, detail, basis });
   const failed = subnodes.flatMap((n) => n.results.filter((r) => r.ok === false).map((r) => `${n.id} ${r.rule}`));
-  add('sub-nodes', failed.length === 0, failed.length ? `위반 → ${failed.join(', ')}` : `하위 노드 ${subnodes.length}개(${subnodes.map((n) => n.id).join(', ')}) 위반 없음`, '하위 노드');
+  // [INFRA-10] O40: ⚠ 허용됨은 위반으로 세지 않고 따로 적는다
+  const warned = subnodes.flatMap((n) => n.results.filter((r) => r.ok === 'warn').map((r) => `${n.id} ${r.rule}`));
+  const warnNote = warned.length ? ` / ⚠ 허용됨 → ${warned.join(', ')}` : '';
+  add('sub-nodes', failed.length === 0, (failed.length ? `위반 → ${failed.join(', ')}` : `하위 노드 ${subnodes.length}개(${subnodes.map((n) => n.id).join(', ')}) 위반 없음`) + warnNote, '하위 노드');
   const t = subnodes.some((n) => n.id === `${id}-T`);
   add('big-unit-test', t, t ? `큰 단위 테스트 노드 ${id}-T 있음` : `큰 단위 테스트 노드 ${id}-T 없음`);
   add('big-unit-report', reportText !== undefined, `docs/for-me/${id}-report.md ${reportText !== undefined ? '있음' : '없음'}`);
@@ -171,6 +198,7 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
     }
   };
   const progressHead = show(`HEAD:${PROGRESS}`) ?? '';
+  const git = (a) => execFileSync('git', a, { cwd, encoding: 'utf8' });
 
   const checkNode = (nodeId) => {
     const commits = loadCommits(nodeId, cwd);
@@ -189,13 +217,26 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
     const head = progressHead.indexOf(`### [${nodeId}] 계획`);
     const progressSection = head < 0 ? undefined : progressHead.slice(head).split(/\n(?=##+ )/).slice(0, 1)[0];
     // 규칙 도입 커밋이 이 작업 첫 커밋의 조상(또는 같은 커밋)이면 규칙이 적용된다
-    let planRuleApplies = false;
-    try {
-      if (commits[0]) {
-        execFileSync('git', ['merge-base', '--is-ancestor', PLAN_RULE_SINCE, commits[0].hash], { cwd, stdio: 'ignore' }); // 조상이 아니면 예외
-        planRuleApplies = true;
+    const since = (rule) => {
+      try {
+        if (!commits[0]) return false;
+        execFileSync('git', ['merge-base', '--is-ancestor', rule, commits[0].hash], { cwd, stdio: 'ignore' }); // 조상이 아니면 예외
+        return true;
+      } catch {
+        return false;
       }
-    } catch {}
+    };
+    const planRuleApplies = since(PLAN_RULE_SINCE);
+    // [INFRA-10] O39: 이 노드 첫 커밋 뒤 HEAD까지, test/를 바꾼 모든 커밋(병합 제외, 다른 ID 포함)
+    const laterCommits = commits[0]
+      ? git(['log', '--no-merges', '--reverse', '--format=%h%x1f%s', `${commits[0].hash}..HEAD`, '--', 'test/'])
+          .split('\n')
+          .filter(Boolean)
+          .map((l) => {
+            const [hash, subject] = l.split('\x1f');
+            return { hash, subject, files: git(['diff-tree', '--no-commit-id', '--name-only', '-r', hash]).split('\n').filter(Boolean) };
+          })
+      : [];
     const results = checkCommits({
       id: nodeId,
       commits,
@@ -205,11 +246,14 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
       progressSection,
       docAtCommit: docCommit ? show(`${docCommit.hash}:${docPath}`) : undefined,
       readLine: docCommit ? readLine : undefined,
+      laterCommits,
+      progressText: progressHead,
+      verdictRuleApplies: since(VERDICT_RULE_SINCE),
     });
     return { id: nodeId, commits, results };
   };
 
-  const mark = (r) => (r.ok === null ? '➖ 건너뜀' : r.ok ? '✅' : '❌');
+  const mark = (r) => (r.ok === null ? '➖ 건너뜀' : r.ok === 'warn' ? '⚠ 허용됨' : r.ok ? '✅' : '❌');
   const table = (results) => {
     console.log('| 규칙 | 결과 | 기준 | 근거 |\n|---|---|---|---|');
     for (const r of results) console.log(`| ${r.rule} | ${mark(r)} | ${r.basis} | ${r.detail} |`);

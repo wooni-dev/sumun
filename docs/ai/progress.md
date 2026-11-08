@@ -3,9 +3,9 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-4c] 완료(feat/TLS-4c, 병합 대기). **TLS 큰 단위 ✅**(보고서 승인 2026-11-08). 다음: INFRA-10(O39~O46 반영) → SEC-3.
+- 작업: [INFRA-10] 완료(feat/INFRA-10, 병합 대기). 다음: SEC-3(루트 CA 등록·해제 — 시작 전에 사용자에게 설명·확인).
   - 세션 시작 대조(2026-11-08): main = 00248ae, `npm test` 523/523, 실패 0, 대기 0 [확인됨] — 기록과 일치.
-  - 순서: ~~① TLS-4c~~ 완료 → ~~② TLS ✅(O37)~~ 완료 → ③ INFRA-10(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
+  - 순서: ~~① TLS-4c~~ 완료 → ~~② TLS ✅(O37)~~ 완료 → ~~③ INFRA-10~~ 완료(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
   - 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로(`[TLS]`로 하면 check-method가 작은 단위로 판정 — d642a81 보고서 실행 증거 5).
   - 커밋 메시지는 Write 도구로 파일에 쓰고 `git commit -F`(hook이 리다이렉트+테스트 경로를 막음, 의도한 보수적 동작 — O45 후보).
 - 범위 밖으로 남은 것(보고서 '자세히 볼 부분'): 테스트 코드가 .claude/state/에 쓸 수 있는 빈틈(INFRA-9 사례 12), PRX-2 F6이 %LOCALAPPDATA%\sumun을 보지 않음, OS 연결 대기열 232개, curl --ssl-no-revoke.
@@ -690,6 +690,34 @@
 - 계획과 달라진 점: 범위의 "필요하면 새 도우미 `_tls4c.ts`"는 만들었다. 범위에 없던 `scripts/review/`는 바꾸지 않았다(재실행만). 사례 배정 변경 없음. TLS·TLS-T를 ✅로(보고서 승인, 이 문서 커밋).
 - [TLS-4c] 완료: 5fd1dab..cb8da6a, 병합 188a042 + 이 기록 커밋. 다음: INFRA-10.
 - `node scripts/check-method.mjs --id TLS-4c`(188a042) → 11개 중 10 ✅, **message-format ❌**(b0f9429, 15d958f, 9dc3d7d): "검증" 줄을 `- 검증(이 커밋 시점, …):`으로 써서 검사기가 `- 검증:`을 찾지 못함. 내용은 있다. TLS-1b와 같은 실수다. TLS 보고서 결정 17(이력 재작성 없음)에 따라 남긴다. INFRA-10에서 다룰지 정한다(형식을 고정할지, 검사기가 괄호를 허용할지) [추측: 커밋 메시지 서식을 파일로 쓰는 O45 절차에 "검증:" 서식도 함께 넣으면 막힌다].
+
+### [INFRA-10] 계획
+- 근거: TLS 중간 확인 보고서 승인(2026-11-08) — 방식 보정 O39~O46 8건 모두 승인. 승인 상태는 `docs/method-feedback.md` "승인 상태" 표. 사용자 지시(2026-11-08): "INFRA-10 진행해".
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 보안·차단 규칙(hook, 권한, 인증서)을 바꾸지 않으므로 O10은 해당 없다(기계 검사는 형식 판정이다, O7).
+- 한 줄 보고: 목표 = 승인된 O39~O46을 기계 검사와 지침에 반영 / 범위 =
+  - `scripts/check-method.mjs`:
+    - `checkCommits()` 규칙 `test-unchanged`: 같은 ID 커밋만이 아니라 테스트 커밋 뒤 **모든 커밋**(다른 ID 포함)이 그 노드의 테스트 파일을 바꿨는지 본다(새 인자 `laterCommits`, O39). 바꾼 커밋이 모두 "허용된 수정"이면 결과 `'warn'`(⚠ 허용됨, 위반 아님). 허용된 수정 = 제목에 `(사용자 허용`이 있고 progress.md에 그 해시와 "허용"이 한 줄에 있음(새 인자 `progressText`, O40)
+    - `checkCommits()` 규칙 `predictions-measured`: 예상 줄에 `[탐색]`이 있으면 탐색으로 따로 센다. 탐색이 아닌 예상은 실측 기록 줄에 `일치` 또는 `불일치`가 있어야 한다 — 이 판정 요구는 INFRA-10 계획 커밋 뒤 작업에만(새 인자 `verdictRuleApplies`, 상수 `VERDICT_RULE_SINCE`, O46)
+    - `checkBigUnit()` 규칙 `sub-nodes`: ⚠ 허용됨은 위반으로 세지 않고 근거에 따로 적는다
+    - CLI: 다른 ID 커밋 읽기(`git log <테스트 커밋>..HEAD -- <테스트 파일>`), 표의 결과 `⚠ 허용됨`
+  - 새 `test/infra/check-method-infra10.test.mjs`(새 동작), 새 `test/infra/check-method-infra10-regression.test.mjs`(구현 전에도 통과해야 정상)
+  - `CLAUDE.md` 개발 방식 절: PR 앞의 `[RULE]` 커밋(O41), 타이밍 assertion(O43), 허용된 테스트 수정 절차와 검증(O40·O44), 커밋 메시지 절차(O45), 탐색 예상(O46). "큰 단위" 절: 이어 붙이기의 확인 가능한 문장(O42)
+  - `.claude/agents/method-auditor.md`: ⚠ 허용됨의 판정(허용 기록과 O44 확인을 본다)
+  - `docs/method-feedback.md`(승인 표의 반영 위치), `docs/for-me/INFRA-10.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = hook 변경, 과거 커밋 재작성(TLS 보고서 결정 17), decisions.md(사용자가 직접), message-format 규칙 변경(TLS-4c ❌는 내 서식 실수 — 기존 형식 `- 검증:`을 O45 절차 문장에 함께 적어 막는다)
+- 예상 [추측] (판정 기준 포함):
+  - E117: 새 동작 테스트는 지금 구현(main 6b2e93e)에서 모두 assertion 실패, 오류 0(새 모듈이 아니라 stub 없음 — 기존 함수에 새 인자를 넘기면 무시된다). 회귀 테스트는 모두 통과. 판정: 실패 수 = 새 동작 테스트 수, 오류 0, 회귀 실패 0.
+  - E118: 구현 뒤 `node scripts/check-method.mjs --id TLS`의 sub-nodes 근거에서 ❌는 정확히 4건(TLS-1b message-format, TLS-2 plan-first, TLS-2 test-first, TLS-4c message-format)이고, ⚠ 허용됨은 정확히 5건(TLS-2b·TLS-3·TLS-4·TLS-4b·TLS-T test-unchanged — TLS-T는 9d8a528이 [TLS-4] 이름으로 고쳐 지금은 ✅로 잘못 나온다). 판정: 두 목록이 이와 같으면 일치.
+  - E119 [탐색]: 파일 기준으로 바꾸면 PRX·INFRA 노드 중 test-unchanged 결과가 바뀌는 노드가 있는지(다른 ID 커밋이 그 노드의 테스트 파일을 바꾼 일이 있는지). 결과를 기록하고, 새 ❌가 나오면 원인 커밋을 적는다.
+  - E120: 구현 뒤 `npm test` 실패 0, 대기 0. 판정: 둘 다.
+- 실측 (명령 원문):
+  - E117 일치(af6a14c): `npm run test:red -- test/infra/check-method-infra10.test.mjs` → 8개 모두 assertion 실패, 오류 0. `npm test -- test/infra/check-method-infra10-regression.test.mjs` → 7 / 7.
+  - E118 일치(4c06f6a): `node scripts/check-method.mjs --id TLS` → 위반 4건(TLS-1b message-format, TLS-2 plan-first, TLS-2 test-first, TLS-4c message-format), ⚠ 허용됨 5건(TLS-T, TLS-2b, TLS-3, TLS-4, TLS-4b test-unchanged).
+  - E119 [탐색] 기록: main의 check-method.mjs를 임시 폴더(`.oldcm/check-method.mjs` — 직접 실행 판정이 파일 이름 끝을 보므로 이름 그대로)에 꺼내, git 이력의 모든 PRX·INFRA·TLS 노드에 같은 `--id`로 돌려 규칙 표를 비교 → 바뀐 것은 TLS-2b·TLS-3·TLS-4·TLS-4b test-unchanged ❌→⚠, TLS-T ✅→⚠ 뿐. PRX·INFRA는 변화 없음, 새 ❌ 없음. 첫 비교는 꺼낸 파일 이름을 `.check-method-old.mjs`로 해서 출력이 비었다(직접 실행 판정 실패) → 이름을 바꿔 다시.
+  - E120 일치(5bddebe): `npm test` → 566 / 566 / 실패 0 / 대기 0.
+- 계획과 달라진 점: 없음. 비교에 쓴 임시 폴더는 지웠다 [추측: 결과는 위 명령으로 재현 가능하므로 O19 위반은 아님 — 비교 스크립트가 아니라 같은 CLI를 두 버전으로 실행한 것].
+- [INFRA-10] 완료: 6228f88..(이 문서 커밋). 다음: 병합 → `check-method --id INFRA-10` → SEC-3.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

@@ -179,7 +179,7 @@
 | O10~O17 | ✅ 승인(2026-11-07, AUDIT-2 보고서 2~4) | INFRA-6: CLAUDE.md(O10, O11, O13, O15, O17), check-method(O12, O14), method-auditor(O16) |
 | O18~O21 | ✅ 승인(2026-11-07, AUDIT-3 보고서 1) | INFRA-7: CLAUDE.md(O18~O20). O21은 INFRA-6에서 이미 반영 |
 | O22~O38 | ✅ 승인(2026-11-07, PRX 중간 확인 보고서 `docs/for-me/PRX-report.md` "승인"). O28은 "재배정은 보고서 항목으로"까지 넓혀 승인 | INFRA-8: CLAUDE.md(O23, O25, O26, O28~O31, O33~O38), check-method(O22, O24, O27, O32, O34, O35), method-auditor(O32, O33). O30의 보충 테스트는 다음 PRX 작은 단위 |
-| O39~O46 | ✅ 승인(2026-11-08, TLS 중간 확인 보고서 `docs/for-me/TLS-report.md` "8건 모두 승인") | INFRA-10(TLS-4c 뒤): 반영 위치는 INFRA-10 계획에서 정한다 |
+| O39~O46 | ✅ 승인(2026-11-08, TLS 중간 확인 보고서 `docs/for-me/TLS-report.md` "8건 모두 승인") | INFRA-10: check-method(O39 파일 기준, O40 ⚠ 허용됨, O46 탐색·판정 요구 — VERDICT_RULE_SINCE 뒤 작업만), CLAUDE.md(O40·O44 허용 수정 절차, O41 [RULE], O42 이어 붙이기, O43 타이밍, O45 커밋 메시지, O46 [탐색]), method-auditor(O40·O44·O46 판정) |
 | 감사 주기 | ✅ 승인(2026-11-07, AUDIT-3 보고서 3): PRX-1은 PR마다 감사, 그 뒤로는 큰 단위마다 감사 | INFRA-7: CLAUDE.md |
 - ai-research/decisions.md 반영은 사용자가 직접 한다.
 
