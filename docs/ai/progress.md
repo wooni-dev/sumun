@@ -1404,6 +1404,7 @@
 - 2 감사: method-auditor에 "UI"만 넘김 → `docs/method-feedback.md` "[UI] 큰 단위 감사". 하위 노드 8개 ✅, 경미 5건, 관찰 O55~O61. 경미 ②는 [UI-5b] "계획과 달라진 점"에 보탰다.
 - 3 검토 에이전트(새 컨텍스트, 목표 문서·src·test·scripts·package.json만): 일치 12, 부분 확인 1(실제 CA + 일반 브라우저 HTTPS — 저장소 변경 금지로 못 봄), 위험 6(R1 중간 — 필터 중 알림이 0.3초 안에 이어지면 필터 목록이 멈춤, R2~R6 낮음). 스크립트 `scripts/probe/ui-final-review/`. R1·R5는 내가 `timeout 300 node scripts/probe/ui-final-review/browser.mjs`로 다시 확인 [확인됨: 4초 동안 "19건" → 끝난 뒤 1초 "43건", favicon 404]. 검토 에이전트의 첫 `npm test`는 자기 실측과 겹쳐 TLS-3 E45(시간 민감) 1건 실패, 두 번째 783/783 — 마지막 전체 실행 기록은 실패 0.
 - O52 실측(내가): `timeout 180 node scripts/probe/ui-report/browser.mjs` — 평문·HTTPS 복호화(임시 CA, `--ignore-certificate-errors`)·닫힌 포트·실시간·필터·지우기·다른 출처·리바인딩·Via·프록시 경유 모두 기대대로. 새로 확인: Chrome은 `--proxy-server`만 주면 127.0.0.1·localhost를 프록시로 보내지 않음(기록 0 → 0), 다른 출처 링크의 403 문구가 원인과 안 맞음. 스크립트 결함 두 번(동기 curl `err:000`, Chrome 배경 요청 섞임)을 고쳐 세 번째 실행 결과를 씀.
+- 5 check-method(a2f4133): `node scripts/check-method.mjs --id UI` → sub-nodes·merge-records·big-unit-test·big-unit-report·big-unit-review·big-unit-todo 모두 ✅ [확인됨].
 - 4 보고서: `docs/for-me/UI-report.md` — 결정 항목 1~22. 추천: R1·R3·R4·R5·R6·loopback 안내·403 문구를 **UI-6**에서 고치고, 사용자와 함께 실제 CA로 최종 확인(결정 10) 뒤 UI ✅.
 
 ## 범위 밖 문제

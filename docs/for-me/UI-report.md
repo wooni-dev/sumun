@@ -100,7 +100,7 @@
    ℹ tests 783  ℹ pass 783  ℹ fail 0  ℹ todo 0  ℹ duration_ms 78157.6211
    ```
    검토 에이전트도 같은 무렵에 전체 테스트를 두 번 돌렸다. 첫 번째는 `test/ca/TLS-3.test.ts:306` E45(20개 동시 122ms, 기준선 40ms) 1건이 실패했다. 자기 실측 스크립트를 함께 돌려 부하가 걸렸기 때문으로 보인다 [추측]. 다른 작업 없이 다시 돌린 두 번째는 783/783 통과였다.
-2. check-method [확인됨] — 실행 결과는 아래 (이 문서 커밋) 뒤에 붙인다.
+2. check-method [확인됨] — `node scripts/check-method.mjs --id UI`(a2f4133, 이 보고서 첫 커밋 뒤): sub-nodes ✅(UI-1·UI-2b test-unchanged ⚠ 허용됨), merge-records ✅, big-unit-test ✅, big-unit-report ✅, big-unit-review ✅, big-unit-todo ✅(마지막 전체 실행 실패 0, UI 대기 0). 하위 노드 8개 × 12규칙 모두 ✅(허용 2칸 제외).
 3. 실제 클라이언트 실측(O52) [확인됨] — `timeout 180 node scripts/probe/ui-report/browser.mjs`(Chrome/156.0.8078.80 headless, 임시 프로필 둘, 임시 CA. Windows 저장소와 `%LOCALAPPDATA%\sumun`은 쓰지 않음):
    | -T 경로 | 실제 클라이언트 | 결과 |
    |---|---|---|
