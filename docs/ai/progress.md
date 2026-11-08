@@ -1266,6 +1266,17 @@
   - E179: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, "큰 단위 대기(todo) UI: 2개", 5분 안. 판정: 넷 다면 일치.
   - E180(O31, 실제 클라이언트): `npm.cmd start -- --port 18080` 뒤 `curl.exe -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:<바로 띄운 목적지>/x`(목적지는 `node -e`로 127.0.0.1:18090에 띄운 작은 http 서버 — 명령 원문은 실측 기록에) → 대시보드에 `curl.exe -H "Authorization: Bearer <토큰>"`로 `/api/flows` 200 JSON 1건(쿠키 없음), `/api/flows/<id>` 쿠키 있음, `/api/flows/<id>/body/request` = `curl-body`(octet-stream, attachment), `-X POST -H "Content-Type: application/json" -d {} /api/clear` 204, 다시 목록 0건. 판정: 다섯 다면 일치.
 
+- 실측 (명령 원문):
+  - E178 일치(51e5799 커밋 전, stub = handleApi 늘 404, server.ts는 부르지 않음): `npm run test:red -- test/ui/UI-3.test.ts` → 처음에는 7 AssertionError + 1 SyntaxError(404 문구 JSON.parse) → 테스트 구조 수정(get 도우미가 200 먼저 assert, 기대값 그대로, O48) → tests 8 / fail 8, AssertionError 8, 오류 0. `npm test -- test/ui/UI-3-regression.test.ts` → 1 / 1.
+  - 중간(4a74056, rebase 뒤 f805543): `npm test -- test/ui/UI-3.test.ts test/ui/UI-3-regression.test.ts test/ui/UI-1.test.ts test/ui/UI-1-regression.test.ts` → 23 중 22, UI-3은 모두 통과, UI-1 1 실패 → UI-2b 결함(위 [UI-2b]).
+  - E179 일치(f805543, main f7cbb52 위): `timeout 400 npm test` → 종료 코드 0, tests 744 / pass 742 / fail 0 / todo 2, 80초, "큰 단위 대기(todo) UI: 2개, 그중 실패 1개"(UI-T 보호 테스트가 이제 통과).
+  - E180 일치(f805543 코드): 목적지 `node -e "require('http').createServer((q,r)=>{let b='';q.on('data',c=>b+=c);q.on('end',()=>r.end('upstream-saw:'+b))}).listen(18090,'127.0.0.1')"`, `npm.cmd start -- --port 18080`(대시보드 18081). `curl.exe -s -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:18090/x` → `upstream-saw:curl-body`. `curl.exe -s -i -H "Authorization: Bearer <토큰>" http://127.0.0.1:18081/api/flows` → 200, `Content-Type: application/json; charset=utf-8`, `Cache-Control: no-store`, items 1건(POST, status 200, 쿠키 없음), next null. `…/api/flows/1` → CURL-COOKIE 있음. `…/api/flows/1/body/request` → 200 `application/octet-stream`, `Content-Disposition: attachment; filename="body.bin"`, `curl-body`. `curl.exe -X POST -H "Content-Type: application/json" -d "{}" …/api/clear` → 204, 다시 목록 `{"runId":"…","items":[],"next":null}`. 끈 뒤 18080·18081·18090 LISTENING 0.
+- 계획과 달라진 점: 중간에 UI-2b를 먼저 했고(사용자 결정 A), 그 뒤 rebase로 커밋 해시가 바뀌었다(26fe94b→fa7a8ee, 51e5799→861fe21, 4b055fa→f8c9730, 4a74056→f805543).
+- 범위 밖 관찰: 없음(UI-2b 쪽 기록은 위).
+- UI 보고서 결정 항목: `docs/for-me/UI-3.md` "UI 보고서에 올릴 결정".
+- hook 알림(2026-11-08, 규칙 D 실행 뒤 검사 — INFRA-13): `feat/UI-3`에서 `git rebase main`(충돌은 progress.md 한 곳, 두 블록 모두 남김) → `git -c core.editor=true rebase --continue` 뒤 "명령 중 브랜치가 바뀐 뒤 커밋이 생겼습니다(명령 전 detached → 지금 feat/UI-3): f805543, f8c9730, 861fe21, fa7a8ee". 이 네 커밋은 UI-3의 26fe94b·51e5799·4b055fa·4a74056을 main(f7cbb52) 위로 다시 만든 것이고 제목은 모두 `[UI-3]`이다 [확인됨: git log]. rebase 중에는 HEAD가 detached라 검사가 브랜치 변경으로 본 것으로 보인다 [추측] — 의도한 보수적 동작인지 오탐(수정 대상)인지는 사용자 판단. 규칙대로 고치지 않고 멈춤, 되돌릴지 사용자에게 여쭘.
+  - 사용자 결정(채팅 "A로 해"): 그대로 둔다. 이번 알림은 의도한 보수적 동작으로 기록. rebase를 hook이 다르게 다룰지는 UI 보고서 결정 항목.
+
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
   - [UI-2b 검토, 범위 밖 — ui2b-cases.md W1~W4] [::1]:Q의 가짜가 검사 순간만 거절·지연하면 대시보드가 시작되고 `localhost:Q`는 가짜가 받는다(W1·W2), 프록시 검사는 ::1을 보지 않는다(W3), 시작한 뒤 남이 [::1]:Q를 잡으면 막을 수 없다(W4) [확인됨: 에이전트 scripts/probe/ui2b-review/e3·e4·e5·e9]. "127.0.0.1에만 바인딩" 규칙과 걸리므로 UI 보고서 결정 항목.
