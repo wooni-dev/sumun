@@ -9,7 +9,7 @@
   - 미확인(세션 밖, 남음): Edge·Firefox·Windows 시스템 프록시 설정 → SEC 큰 단위.
   - 지금 루트 CA는 **등록 안 됨**(2026-11-09 사용자 해제).
   - 다음: INFRA(O55~O61을 CLAUDE.md·check-method에) → UI-7(필터 0건 안내) → SEC 큰 단위.
-- 2026-11-09: **[INFRA-14] 진행 중** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) 뒤 check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). 계획은 아래 "[INFRA-14] 계획".
+- 2026-11-09: **[INFRA-14] 구현·문서 끝(병합 전)** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) → check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). E199~E201 일치, E202 [탐색] UI-1 E172 하나. `npm test` 809/809. 자세히는 아래 "[INFRA-14] 계획"과 `docs/for-me/INFRA-14.md`.
 - 세션 종료(2026-11-08 자정 무렵). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 796개 모두 통과, 실패 0, 대기 0(4ecb95d 코드 기준, 두 번 — 그 뒤는 실측 스크립트·문서만).
   - 이번 세션(/clear 뒤)에 끝낸 것: UI 큰 단위 끝 1~5단계(감사 [AUDIT-12], 보고서 `docs/for-me/UI-report.md` [AUDIT-13·14], 승인 [AUDIT-15] "모두 추천대로", 결정 4만 다시 여쭤 "메모리에만") → [UI-6] 화면 고침(검토 사례 ui6-cases K1~K37, 테스트 수정 허용 1건 4ecb95d, 병합 e10f397).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T·UI-1~6·UI-2b·UI-5b 모두 ✅ — 남은 것은 결정 10 최종 확인), SEC은 SEC-3 ✅.
@@ -1477,6 +1477,14 @@
   - E200: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0, 기존 check-method 테스트 그대로 통과. 판정: 둘 다면 일치.
   - E201: 구현 뒤 `node scripts/check-method.mjs --id UI-1` → predictions-measured가 "⚠ 확인 필요"이고 근거에 E172가 있다. `--id UI` → sub-nodes ✅이고 근거에 "⚠ 확인 필요 → UI-1 predictions-measured"가 있다. 판정: 셋 다면 일치.
   - E202 [탐색]: 구현 뒤 `--id PRX`, `--id TLS`, `--id STO`, `--id UI`, `--id INFRA-3`~`--id INFRA-13`에서 "⚠ 확인 필요"가 나오는 노드와 번호를 기록한다(과거 계획에서 읽히지 않은 예상이 몇 개인지).
+- 실측 (명령 원문):
+  - E199 일치(98d24f2 커밋 전, 구현 전 check-method — stub 없음): `npm run test:red -- test/infra/check-method-infra14.test.mjs` → tests 7 / fail 7, 모두 AssertionError, 오류 0. `npm test -- test/infra/check-method-infra14-regression.test.mjs` → 6 / 6.
+  - 313563a: `npm test -- test/infra/check-method-infra14.test.mjs test/infra/check-method-infra14-regression.test.mjs` → 13 / 13(첫 번).
+  - E200 일치(313563a): `npm test`(전체) → tests 809 / pass 809 / fail 0 / todo 0, 종료 코드 0(99초).
+  - E201 일치(313563a): `node scripts/check-method.mjs --id UI-1` → `| predictions-measured | ⚠ 확인 필요 | HEAD | 예상 E170, E171, E173 모두 실측 기록 있음 / 계획 제목의 예상 E172를 계획 절에서 읽지 못함(O58) |`. `--id UI` → `| sub-nodes | ✅ | … 위반 없음 / ⚠ 허용됨 → UI-1 test-unchanged, UI-2b test-unchanged, UI-6 test-unchanged / ⚠ 확인 필요 → UI-1 predictions-measured |`.
+  - E202 [탐색] 기록(313563a): `foreach ($id in 'PRX','TLS','STO','UI') { node scripts/check-method.mjs --id $id | Select-String 'sub-nodes' }` + `foreach ($n in 3..13) { node scripts/check-method.mjs --id "INFRA-$n" | Select-String 'predictions' }` → ⚠ 확인 필요는 **UI-1 E172 하나뿐**. INFRA-3~13은 모두 ✅. PRX sub-nodes ❌(PRX-1 test-commits-test-only), TLS sub-nodes ❌(TLS-1b·TLS-4c message-format, TLS-2 plan-first·test-first).
+  - 추가 실측(계획 밖, O60): PRX·TLS의 ❌가 이번 변경 탓인지 보려고 main의 check-method를 저장소 안 임시 폴더에 꺼내 같은 명령을 돌림 — `git show main:scripts/check-method.mjs | Set-Content -Encoding utf8 tmp-cm\check-method.mjs; node tmp-cm\check-method.mjs --id PRX` (TLS도) → 같은 ❌ 문구. 원래 있던 위반(각 큰 단위 보고서에서 다룸)이다. 임시 폴더는 지웠다.
+- 계획과 달라진 점: 없음. 범위는 `scripts/check-method.mjs`, 테스트 두 파일, 문서 셋(`docs/method-feedback.md`, `docs/for-me/INFRA-14.md`, progress.md)과 앞선 `[RULE]` CLAUDE.md.
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
