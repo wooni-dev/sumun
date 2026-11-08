@@ -821,6 +821,11 @@
   - E136: `npm run test:red -- test/sto/STO-T.test.ts` → 2개 모두 실패, 유형은 오류(동적 import한 `src/store/store.ts`가 없음, ERR_MODULE_NOT_FOUND). 판정: 실패 2, 각각 ERR_MODULE_NOT_FOUND면 일치.
   - E137: 테스트 커밋 뒤 `npm test`는 종료 코드 0, 출력에 "큰 단위 대기(todo) STO: 2개, 그중 실패 2개". 판정: 둘 다면 일치.
   - E138: 옮긴 실험 스크립트가 저장소 안에서도 에이전트 결과와 같은 줄을 낸다(E8b "끝이 없는 시작 1:CONNECT", E14 "s2 s3 f1 f2 f3", e5-reject 종료 코드 1). 판정: 셋 다 같으면 일치.
+- 실측 (명령 원문):
+  - E136 일치(b9b2f79): `npm run test:red -- test/sto/STO-T.test.ts` → tests 2 / todo 2, 오류 2개 ERR_MODULE_NOT_FOUND(`src/store/store.ts`), "[red] 2개 모두 실패".
+  - E137 일치(b9b2f79): `npm test` → 종료 코드 0, tests 593 / pass 591 / fail 0 / todo 2, "큰 단위 대기(todo) STO: 2개, 그중 실패 2개".
+  - E138 일치(cd27f80): `scripts/probe/sto-review`에서 `node e2-proxy.mjs` → "E14 … s2 s3 f1 f2 f3", `node e3-mitm.mjs` → "E8b … 끝이 없는 시작 1:CONNECT", `node e5-reject.mjs` → 종료 코드 1. 처음에는 계획 커밋 전에 한 번 돌려 봤고(결과 같음), 판정은 계획 커밋 뒤 다시 돌린 것으로 했다.
+- 계획과 달라진 점: 없음.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 

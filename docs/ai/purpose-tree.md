@@ -47,7 +47,7 @@
  │   ├ [TLS-4b] 복호화 견고성: 핸드셰이크 타임아웃·비TLS·h2, 파이프라이닝·Upgrade, 캐시 상한·만료, 실패 원인 세부, 터널 주소 목록   ✅  → src/tls/  의존: TLS-4  (배정 "4b". 2026-11-08 TLS-4에서 나눔 — 작은 기능 추가)
  │   └ [TLS-4c] 복호화 터널 안 헤더 제한(유휴·느린 헤더 연결을 닫음, 408), 목적지 인증서 검증 실패를 목록 밖까지 bad-certificate로   ✅  → src/tls/mitm.ts, src/proxy/server.ts  의존: TLS-4b  (TLS 보고서 결정 1·2, tls4c-cases.md 배정 "4c")
  ├ [STO] 저장소 — 왜: 지나간 요청을 다시 보고 화면에 전달해야 함         🔨  → src/store/  의존: PRX-2, TLS
- │   ├ [STO-T] 큰 단위 테스트: curl 평문 요청·HTTPS 복호화 요청·닿지 않는 목적지 → 저장소 → 알림(요약)·목록·필터·상세(사본), 상한으로 오래된 것부터   ⬜  → test/sto/STO-T.test.ts
+ │   ├ [STO-T] 큰 단위 테스트: curl 평문 요청·HTTPS 복호화 요청·닿지 않는 목적지 → 저장소 → 알림(요약)·목록·필터·상세(사본), 상한으로 오래된 것부터   ✅  → test/sto/STO-T.test.ts  (대기: src/store/attach.ts)
  │   ├ [STO-1] 저장·요약·상세·알림(진행 중 → 완료, 구독자 격리, 출력 안전)   ⬜  → src/store/store.ts  (sto-cases.md 배정 "STO-1")
  │   ├ [STO-2] 보관 상한: 256MiB·10,000건·진행 중 1,000개, 오래된 것부터, 메모리가 실제로 풀림   ⬜  → src/store/store.ts  의존: STO-1
  │   ├ [STO-3] 필터(호스트·메서드·상태 코드)와 페이지   ⬜  → src/store/filter.ts  의존: STO-1
