@@ -1,4 +1,5 @@
 {
   "enabled": true,
-  "note": "[INFRA-11] 이 파일이 있으면 규칙 C(커밋 메시지 형식, guard.mjs·commit-check.mjs)가 켜진다. 지우면 꺼진다 — docs/ai/infra11-cases.md 한계 L1"
+  "branch": true,
+  "note": "[INFRA-11] 이 파일이 있으면 규칙 C(커밋 메시지 형식, guard.mjs·commit-check.mjs)가 켜진다. 지우면 꺼진다 — docs/ai/infra11-cases.md 한계 L1. [INFRA-13] \"branch\": true면 규칙 D(제목 ID와 브랜치 일치)도 켜진다 — docs/ai/infra13-cases.md 한계 L1"
 }

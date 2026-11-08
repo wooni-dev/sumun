@@ -7,13 +7,16 @@
 //  C. [INFRA-11] 커밋 메시지 형식(O47) — 표시 파일 .claude/commit-rule.json이 있을 때만. 커밋은 `git commit -F <절대 경로>` 모양만,
 //     그 파일은 scripts/commit-msg.mjs로 검사. 실행 뒤 검사(commit-check.mjs)의 기준으로 지금 HEAD·시각을 기록한다
 //     (사례·한계: docs/ai/infra11-cases.md)
+//  D. [INFRA-13] 커밋 제목 ID가 브랜치에 맞는지(O54) — 표시 파일에 "branch": true일 때만. 제목은 scripts/commit-msg.mjs branchProblems,
+//     main의 git merge feat/<ID>는 mergeProblems. 같은 명령 안 위치·브랜치·환경 바꾸기, 다른 경로 -C, 다른 cwd는 막는다
+//     (사례·한계: docs/ai/infra13-cases.md)
 //
 // 판정: 막을 때만 JSON을 출력한다. 아무것도 출력하지 않으면 허용이다.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stopped, STOP_AFTER } from '../../scripts/streak.mjs';
-import { messageProblems } from '../../scripts/commit-msg.mjs';
+import { messageProblems, branchProblems, mergeProblems } from '../../scripts/commit-msg.mjs';
 
 const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const stateDir = path.join(projectDir, '.claude', 'state');
@@ -39,6 +42,15 @@ const COMMIT_OK_FLAGS = new Set(['-q', '--quiet', '--allow-empty']);
 const MSG_COMMIT_SHAPE =
   '커밋은 `git commit -F "<절대 경로>"` 모양만 허용합니다(-q, --allow-empty는 함께 써도 됨. 규칙 C, INFRA-11). 메시지는 Write 도구로 저장소 밖 임시 파일에 쓰세요. ' +
   '-m, --amend, -C, --no-edit, --fixup, 표준입력(-F -), 변수·상대 경로, git 앞의 환경 변수·-c 설정, 같은 명령 안에서 메시지 파일 쓰기는 막습니다.';
+// [INFRA-13] 규칙 D (branchRuleProblem·recordHead에서 사용 — 같은 이유로 여기서 초기화)
+const gitOut = (args) => execFileSync('git', ['-C', projectDir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+// 경로 비교(Windows: 대소문자·구분자 무시, Git Bash /d/… 표기)
+const normPath = (p) => path.resolve(absPath(p) ?? p).replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+const CHANGER_WORD_RE = /^(cd|pushd|popd|chdir|set|export|unset|Set-Location|sl|Push-Location|Pop-Location)$/i;
+const CHANGER_GIT_RE = /^(checkout|switch|branch|update-ref|symbolic-ref|worktree|rebase)$/;
+const MSG_D_SAME_CMD =
+  '커밋·병합과 같은 명령 안에서 브랜치·작업 위치·환경 변수를 바꿀 수 없습니다(규칙 D, INFRA-13 — checkout·switch·branch·cd·Set-Location·export·$env: 등). 명령을 둘로 나누세요.';
+const firstLine = (s) => s.replace(/^﻿/, '').split(/\r?\n/)[0];
 
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const { tool_name: tool, tool_input: ti = {} } = input;
@@ -98,6 +110,11 @@ if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
     recordHead();
     const why = commitProblem(cmd, tool);
     if (why) deny(why);
+    // [INFRA-13] 규칙 D: 형식(규칙 C)을 통과한 커밋·병합만 본다
+    if (ruleDOn()) {
+      const whyD = branchRuleProblem(cmd, tool);
+      if (whyD) deny(whyD);
+    }
   }
 }
 
@@ -106,8 +123,115 @@ function recordHead() {
   try {
     const head = execFileSync('git', ['-C', projectDir, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     fs.mkdirSync(stateDir, { recursive: true });
-    fs.writeFileSync(path.join(stateDir, 'commit-check.json'), JSON.stringify({ head, at: Date.now() }));
+    // [INFRA-13] 규칙 D의 실행 뒤 검사 기준: 브랜치(detached면 null)와 HEAD reflog 항목 수
+    const rec = { head, at: Date.now() };
+    if (ruleDOn()) Object.assign(rec, { branch: currentBranch(), reflog: reflogCount() });
+    fs.writeFileSync(path.join(stateDir, 'commit-check.json'), JSON.stringify(rec));
   } catch {}
+}
+
+// [INFRA-13] 규칙 D ----------------------------------------------------------
+function ruleDOn() {
+  try {
+    return JSON.parse(fs.readFileSync(COMMIT_RULE_FILE, 'utf8')).branch === true;
+  } catch {
+    return false;
+  }
+}
+function currentBranch() {
+  try {
+    return gitOut(['symbolic-ref', '-q', 'HEAD']).trim().replace(/^refs\/heads\//, '') || null;
+  } catch {
+    return null; // detached HEAD(리베이스 중 포함)
+  }
+}
+function reflogCount() {
+  try {
+    return gitOut(['reflog', 'show', '--format=%h', 'HEAD']).split('\n').filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+// 조각의 git 명령: { sub, rest(하위 명령 뒤 낱말), cPath(-C 값) } 또는 null. 앞 낱말이 위치·환경 바꾸기면 changer
+function gitOf(words) {
+  let i = 0;
+  let changer = false;
+  while (i < words.length && (SKIP_WORD_RE.test(words[i].v) || /^[({!&]/.test(words[i].v) || ENV_ASSIGN_RE.test(words[i].v))) {
+    if (ENV_ASSIGN_RE.test(words[i].v)) changer = true;
+    i++;
+  }
+  const w0 = words[i]?.v ?? '';
+  if (CHANGER_WORD_RE.test(w0) || /^\$env:/i.test(w0)) changer = true;
+  if (!GIT_RE.test(w0)) return { changer, git: null };
+  i++;
+  let cPath;
+  while (i < words.length && words[i].v.startsWith('-')) {
+    if (words[i].v === '-C') {
+      cPath = words[i + 1]?.v ?? '';
+      i += 2;
+    } else i += words[i].v === '-c' ? 2 : 1;
+  }
+  const sub = words[i]?.v;
+  if (CHANGER_GIT_RE.test(sub ?? '')) changer = true;
+  return { changer, git: { sub, rest: words.slice(i + 1), cPath } };
+}
+
+function fileTitle(p) {
+  const abs = p && absPath(p);
+  if (!abs) return null;
+  try {
+    return firstLine(fs.readFileSync(abs, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// 막을 이유(문구) 또는 null
+function branchRuleProblem(cmd, tool) {
+  const stripped = segmentsOf(stripData(cmd, tool).replace(/\d*>&\d/g, ' '), tool).map(gitOf);
+  // git merge의 -m 값은 stripData가 지우므로 원문에서 읽는다
+  const raw = segmentsOf(cmd, tool).map(gitOf);
+  const commits = stripped.filter((g) => g.git?.sub === 'commit');
+  const merges = raw.filter((g) => g.git?.sub === 'merge');
+  if (!commits.length && !merges.length) return null;
+  if (stripped.some((g) => g.changer)) return MSG_D_SAME_CMD;
+  if (input.cwd && normPath(input.cwd) !== normPath(projectDir))
+    return `작업 위치(${input.cwd})가 이 저장소(${projectDir})가 아니라서 커밋·병합을 막습니다(규칙 D, INFRA-13). 저장소 폴더에서 실행하세요.`;
+  for (const g of [...commits, ...merges])
+    if (g.git.cPath !== undefined && normPath(g.git.cPath) !== normPath(projectDir))
+      return `git -C는 이 저장소 경로(${projectDir})만 됩니다(규칙 D, INFRA-13): ${g.git.cPath}`;
+  const branch = currentBranch();
+  for (const g of commits) {
+    const r = g.git.rest;
+    let file;
+    for (let i = 0; i < r.length; i++) {
+      if (r[i].v === '-F' || r[i].v === '--file') file = r[i + 1]?.v;
+      else if (r[i].v.startsWith('--file=')) file = r[i].v.slice(7);
+    }
+    const title = fileTitle(file);
+    if (title === null) continue; // 메시지 파일 문제는 규칙 C가 본다
+    const p = branchProblems({ branch, title, unlocked: unlocked() });
+    if (p.length) return p.join(' / ');
+  }
+  for (const g of merges) {
+    const r = g.git.rest;
+    let title = null;
+    const targets = [];
+    for (let i = 0; i < r.length; i++) {
+      const v = r[i].v;
+      if (v === '-F' || v === '--file') title = fileTitle(r[++i]?.v);
+      else if (v.startsWith('--file=')) title = fileTitle(v.slice(7));
+      else if (v === '-m' || v === '--message') title ??= firstLine(r[++i]?.v ?? '');
+      else if (v.startsWith('--message=')) title ??= firstLine(v.slice(10));
+      else if (/^-m./.test(v)) title ??= firstLine(v.slice(2));
+      else if (!v.startsWith('-') && !/^[)}]+$/.test(v)) targets.push(v);
+    }
+    for (const target of targets) {
+      const p = mergeProblems({ branch, target, title });
+      if (p.length) return p.join(' / ');
+    }
+  }
+  return null;
 }
 
 // [INFRA-11] 명령을 따옴표 밖의 ; & | 줄바꿈에서 조각으로 나누고, 조각을 낱말로 나눈다.
