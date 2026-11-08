@@ -1,0 +1,23 @@
+// [UI-T] 검토 에이전트 실험(docs/ai/ui-cases.md E1~E9). 저장소 경로 인자가 없으면 이 파일 기준으로 찾는다
+import http from 'node:http';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+const repo = (process.argv[2] ?? fileURLToPath(new URL('../../..', import.meta.url)));
+const { startProxy } = await import(pathToFileURL(repo + '/src/proxy/server.ts').href);
+const { createStore } = await import(pathToFileURL(repo + '/src/store/store.ts').href);
+const { attachStore } = await import(pathToFileURL(repo + '/src/store/attach.ts').href);
+const seen = [];
+const dash = http.createServer((req, res) => { seen.push({ host: req.headers.host, via: req.headers.via, origin: req.headers.origin, ra: req.socket.remoteAddress }); res.end('{"secret":"COOKIE=abc"}'); });
+await new Promise(r => dash.listen(0, '127.0.0.1', r));
+const dp = dash.address().port;
+const store = createStore();
+const proxy = await startProxy({ port: 0, ...attachStore(store) });
+const via = (url, headers = {}) => new Promise((ok) => { const r = http.request({ host: '127.0.0.1', port: proxy.port, path: url, headers }, (res) => { let b=''; res.on('data', c => b += c); res.on('end', () => ok(res.statusCode + ' ' + b)); }); r.end(); });
+console.log('E1 127.0.0.1:dash via proxy ->', await via(`http://127.0.0.1:${dp}/api/flows`, { origin: 'http://evil.example' }));
+console.log('E2 localhost:dash via proxy ->', await via(`http://localhost:${dp}/api/flows`));
+console.log('E3 0x7f000001:dash ->', await via(`http://0x7f000001:${dp}/x`));
+console.log('E4 own proxy port ->', await via(`http://127.0.0.1:${proxy.port}/x`));
+await new Promise(r => setTimeout(r, 100));
+console.log('E5 dash saw', JSON.stringify(seen));
+const l = store.list(); console.log('E6 stored', l.length, l.map(s => s.url + ' ' + s.status).join(' | '));
+const d = store.get(l[0].id); console.log('E7 stored body', d?.response?.body.toString());
+await proxy.close(); dash.close();
