@@ -62,7 +62,7 @@
  │   ├ [UI-3] 조회 API: 목록(필터·페이지)·상세·본문·지우기   ✅  → src/dashboard/api.ts  (배정 "UI-3")
  │   ├ [UI-4] 실시간 통로: SSE, 연결 상한, 느린 구독자, 재연결   ✅  → src/dashboard/events.ts  (배정 "UI-4")
  │   ├ [UI-5] 화면: 목록·상세·필터·실시간 갱신, 안전한 출력(textContent·숨은 문자·punycode), 텍스트·16진 본문, 큰 값, "복호화 꺼짐" 안내   ✅  → src/dashboard/public/app.js, view.js  (배정 "UI-5")
- │   └ [UI-5b] 화면 보강: 래스터 이미지 미리보기(D-9), 압축 해제 상한(D-10), 본문 내려받기   ⬜  → src/dashboard/public/  (UI-5에서 나눔 — U21·U28 재배정, 2026-11-08 Claude가 추가)
+ │   └ [UI-5b] 화면 보강: 래스터 이미지 미리보기(D-9), 압축 해제 상한(D-10), 본문 내려받기   🔨  → src/dashboard/public/  (UI-5에서 나눔 — U21·U28 재배정, 2026-11-08 Claude가 추가)
  │         (UI-T·UI-1~5: 2026-11-08 Claude가 나눔 — 작은 기능 추가, 보고서에 표시)
  └ [SEC] 안전장치 — 왜: MITM 도구는 잘못 쓰면 내 PC의 보안 구멍이 됨     ⬜  모든 기능에 걸침
      ├ [SEC-1] 127.0.0.1 바인딩 (PRX-1, UI에서 함께 검증)
