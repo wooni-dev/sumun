@@ -19,6 +19,9 @@ const TREE = 'docs/ai/purpose-tree.md';
 export const PLAN_RULE_SINCE = '77161c18e74d265ac56eeca3d8bd3863f621ece5'; // [INFRA-7] 커밋이 늘어도 모호하지 않게 전체 해시로
 // [INFRA-10] O46: 예상마다 실측 기록에 판정(일치/불일치)을 요구하기 시작한 커밋(INFRA-10 계획). 이보다 앞선 작업은 판정 없는 기록도 통과
 export const VERDICT_RULE_SINCE = '6228f889ed039226533e4e1f3190272c80019260';
+// [INFRA-12] O50: 병합 뒤 기록 커밋(`[ID] 병합 뒤 기록: …`)을 요구하기 시작한 커밋(INFRA-12 계획). 이보다 앞선 작업은 ➖
+export const MERGE_RECORD_SINCE = 'c7c05225d0b1cadd7376cdb9c05a8793fb0195fe';
+export const MERGE_RECORD_TITLE = '병합 뒤 기록';
 
 // [INFRA-10] O40: 사용자가 허용한 테스트 수정 = 제목에 "(사용자 허용"이 있고, progress.md의 한 줄에 그 커밋 해시(앞 7자)와 "허용"이 함께 있다
 const allowedFix = (x, progressText) =>
@@ -37,7 +40,8 @@ function codeSection(docText) {
 //   laterCommits(O39) = 이 노드 첫 커밋 뒤 저장소의 모든 커밋(다른 ID 포함, 오래된 순). 없으면 이 ID의 커밋만 본다
 //   progressText(O40) = HEAD의 progress.md 전체, verdictRuleApplies(O46) = 판정 요구 규칙이 이 작업에 적용되는가
 // 결과 ok: true ✅ / false ❌ / null ➖ 건너뜀 / 'warn' ⚠ 허용됨(위반 아님 — 사용자가 허용한 테스트 수정, O40)
-export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true, progressSection, docAtCommit, readLine, laterCommits, progressText, verdictRuleApplies = false }) {
+//   mergeRecord(O50) = { applies: 규칙이 이 작업에 적용되는가, merged: `[ID] 병합` 병합 커밋이 있는가, recorded: `[ID] 병합 뒤 기록` 커밋이 있는가 }
+export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true, progressSection, docAtCommit, readLine, laterCommits, progressText, verdictRuleApplies = false, mergeRecord }) {
   const results = [];
   const add = (rule, ok, detail, basis = '작업 커밋') => results.push({ rule, ok, detail, basis });
 
@@ -125,6 +129,13 @@ export function checkCommits({ id, commits, docExists, docText, planRuleApplies 
     const tree = commits.some((x) => x.files.includes(TREE));
     add('tree-updated', tree, tree ? '목적 나무 갱신됨' : '목적 나무(상태)를 갱신하지 않음');
   }
+
+  // [INFRA-12] O50: 이 검사는 보통 병합 직후·기록 전에 돌리므로, 기록이 없어도 ❌가 아니라 ➖ "기록 대기"(pending)로 둔다. 큰 단위 merge-records가 ❌로 본다
+  if (!mergeRecord) add('merge-record', null, '병합·기록 정보를 읽지 않아 건너뜀', 'HEAD');
+  else if (!mergeRecord.applies) add('merge-record', null, `규칙 도입 전 작업이라 건너뜀(도입 커밋 ${MERGE_RECORD_SINCE.slice(0, 7)})`, 'HEAD');
+  else if (!mergeRecord.merged) add('merge-record', null, '아직 병합 전이라 건너뜀', 'HEAD');
+  else if (mergeRecord.recorded) add('merge-record', true, `\`[${id}] ${MERGE_RECORD_TITLE}\` 커밋 있음`, 'HEAD');
+  else results.push({ rule: 'merge-record', ok: null, pending: true, detail: `기록 대기 — 이 결과를 \`[${id}] ${MERGE_RECORD_TITLE}: …\` 커밋으로 진행 기록에 남긴다(O50)`, basis: 'HEAD' });
   return results;
 }
 
@@ -139,6 +150,9 @@ export function checkBigUnit({ id, subnodes, reportText, lastRun }) {
   const warned = subnodes.flatMap((n) => n.results.filter((r) => r.ok === 'warn').map((r) => `${n.id} ${r.rule}`));
   const warnNote = warned.length ? ` / ⚠ 허용됨 → ${warned.join(', ')}` : '';
   add('sub-nodes', failed.length === 0, (failed.length ? `위반 → ${failed.join(', ')}` : `하위 노드 ${subnodes.length}개(${subnodes.map((n) => n.id).join(', ')}) 위반 없음`) + warnNote, '하위 노드');
+  // [INFRA-12] O50: 하위 노드의 병합 뒤 기록이 모두 있는가(규칙 도입 전 노드는 ➖라서 세지 않는다)
+  const waiting = subnodes.filter((n) => n.results.some((r) => r.rule === 'merge-record' && r.pending)).map((n) => n.id);
+  add('merge-records', waiting.length === 0, waiting.length ? `병합 뒤 기록 없음 → ${waiting.join(', ')}` : '병합 뒤 기록이 빠진 하위 노드 없음', '하위 노드');
   const t = subnodes.some((n) => n.id === `${id}-T`);
   add('big-unit-test', t, t ? `큰 단위 테스트 노드 ${id}-T 있음` : `큰 단위 테스트 노드 ${id}-T 없음`);
   add('big-unit-report', reportText !== undefined, `docs/for-me/${id}-report.md ${reportText !== undefined ? '있음' : '없음'}`);
@@ -249,6 +263,12 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
       laterCommits,
       progressText: progressHead,
       verdictRuleApplies: since(VERDICT_RULE_SINCE),
+      // [INFRA-12] O50: 병합 = 제목이 "[ID] 병합"으로 시작하는 병합 커밋, 기록 = 제목이 "[ID] 병합 뒤 기록"으로 시작하는 커밋
+      mergeRecord: {
+        applies: since(MERGE_RECORD_SINCE),
+        merged: git(['log', '--all', '--merges', '--format=%s']).split('\n').some((s) => s.startsWith(`[${nodeId}] 병합`)),
+        recorded: commits.some((x) => x.subject.startsWith(`[${nodeId}] ${MERGE_RECORD_TITLE}`)),
+      },
     });
     return { id: nodeId, commits, results };
   };
