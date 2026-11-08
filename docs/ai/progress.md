@@ -9,7 +9,7 @@
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - **다음 세션 첫 일(순서):**
     1. ~~[UI-4]~~ 실시간 통로 — 2026-11-08 다음 세션(/clear 뒤)에서 끝냄(bdf5e89..). 화면이 지킬 것: 연결마다 hello가 오면 목록을 API로 다시 받기, runId가 바뀌면 새 실행, 탭당 스트림 1개(U36), fetch 스트림으로 읽기(D-4).
-    2. [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4) → UI-T 대기가 풀린다.
+    2. ~~[UI-5]~~ 화면 — 끝냄(c22b235..), UI-T 대기 풀림. 다음은 [UI-5b] 화면 보강(이미지 미리보기·압축 풀기·내려받기) → UI 큰 단위 끝. 원래 메모: [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4) → UI-T 대기가 풀린다.
     3. UI 큰 단위 끝: 전체 테스트(대기 0) → 감사(method-auditor) → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md`(O52: -T 경로마다 실제 클라이언트, HTTPS는 사용자가 CA 등록 뒤 브라우저 — STO 결정 15. **브라우저가 loopback을 프록시에서 기본으로 빼는지 실측** — UI-2 안내 문구·F5 개발 앱 기록에 영향) → `check-method --id UI`.
   - UI 보고서에 올릴 결정(추천으로 진행): 기본 대시보드 포트 = 프록시 + 1(차 있으면 다른 빈 포트), 주소는 시작 줄 끝, 페이지도 cross-site면 403, X1(루프백 서비스 전체 — UI-2 V19·V20 포함), UI-2 E-2·E-3·E-5·E-8·E-9(`docs/for-me/UI-2.md`), UI-2b W1~W4([::1] 쪽 놓침 — "127.0.0.1에만" 규칙과 걸림), UI-3 목록 순서·전체 개수·limit 줄임(STO 결정 6), rebase를 규칙 D가 알리는 것(사용자 결정 A로 이번엔 그대로), 목적 나무에 추가한 UI-T·UI-1~5·UI-2b. `docs/for-me/UI-2.md`의 "해야 할 것"(프록시 예외 목록) 문구는 브라우저 실측 뒤 고친다.
   - 이번 세션에서 배운 것: Windows는 나가는 소켓의 로컬 포트도 연속 번호로 준다 → 직전 임시 포트의 다음 번호에 접속하면 self-connect. 테스트 포트는 임시 포트 범위(49152~) 밖에서 고른다. `npm test -- test/tls`(폴더)는 MODULE_NOT_FOUND — 파일 목록으로. `git checkout`과 테스트 경로를 한 명령에 쓰면 hook이 막는다(`git switch`로). 코드 치환을 node 스크립트로 할 때 따옴표·`\n` 이스케이프에 두 번 실수 — Edit 도구가 안전하다.
@@ -1342,6 +1342,22 @@
   - E188: stub = `view.js`가 모든 함수를 빈 동작으로 export(app.js·app.css 없음, server.ts 그대로). `npm run test:red -- test/ui/UI-5.test.ts` → 새 동작 테스트 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-5-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
   - E189: 구현 뒤 `npm test`(전체) → 종료 코드 0, 실패 0, **"큰 단위 대기(todo) UI" 줄 없음 또는 0개**(UI-T 2개가 실제 검사로 통과), 5분 안. 판정: 넷 다면 일치.
   - E190(O31, 실제 클라이언트 = 브라우저): 목적지 `node -e`(127.0.0.1:18090, E180과 같은 명령), `npm.cmd start -- --port 18080`, Chrome(Claude in Chrome)으로 시작 줄의 대시보드 주소를 연다. ① curl로 보낸 요청(`Cookie: k=CURL-COOKIE`, 본문 `curl-body`)이 목록에 있다 ② 그 줄을 누르면 상세에 `CURL-COOKIE` 헤더와 본문 `curl-body`가 보인다 ③ 페이지를 그대로 둔 채 curl로 새 요청을 보내면 새로고침 없이 목록에 나타난다 ④ 메서드 필터 `POST`로 GET 요청이 빠진다 ⑤ 경로에 `<img src=x onerror=alert(1)>`와 U+202E를 넣은 요청은 글자 그대로(`⟨U+202E⟩` 표시) 보이고 실행되지 않는다(콘솔에 CSP 위반·오류 없음) ⑥ "복호화 꺼짐" 안내가 보인다. 판정: 여섯 다면 일치.
+
+- 실측 (명령 원문):
+  - E188 일치(3df4a60 커밋 전, stub = view.js 빈 export, app.js·app.css 없음): `npm run test:red -- test/ui/UI-5.test.ts` → tests 16 / fail 16, 모두 AssertionError, 오류 0. `npm test -- test/ui/UI-5-regression.test.ts` → 1 / 1.
+  - 중간 1(64e2e73, view.js): `npm test -- test/ui/UI-5.test.ts` → 16 중 13 통과, 3 실패(server.ts·app.js 필요). 커밋 전 `node --input-type=module -e "…hostLabel…domainToUnicode…"`로 punycode 8개 비교 — 유효한 5개 같음.
+  - 중간 2(473ad34, server.ts): `npm test -- test/ui/UI-5.test.ts test/ui/UI-1.test.ts test/ui/UI-1-regression.test.ts` → 30 중 28, 2 실패(app.js·app.css 필요). O53에 따라 남은 화면 파일을 한 커밋(c0fa893)에 묶음.
+  - c0fa893 + 작업 트리 index.ts: `npm test -- test/ui/UI-5.test.ts test/ui/UI-5-regression.test.ts test/ui/UI-T.test.ts` → 19 / 19, todo 0(UI-T 대기 풀림).
+  - E189 일치(c9025ab 상태): `timeout 400 npm test` → 종료 코드 0, tests 773 / pass 773 / fail 0 / todo 0, 81초, "큰 단위 대기" 줄 없음.
+  - E190 **불일치**(c9025ab 코드, Chrome 156 + Claude in Chrome): 목적지 `node -e "require('http').createServer(…upstream-saw:…).listen(18090,'127.0.0.1')"`, `npm.cmd start -- --port 18080`(대시보드 18081). 요청: `curl.exe -s -x http://127.0.0.1:18080 -H "Cookie: k=CURL-COOKIE" --data-binary curl-body http://127.0.0.1:18090/x`, `… http://127.0.0.1:18090/get-only`, `… "http://127.0.0.1:18090/%3Cimg%20src=x%20onerror=alert(1)%3E/<U+202E 바이트>gpj.exe"`, node net 소켓으로 날것 `GET http://127.0.0.1:18090/<img/src=x/onerror=alert(1)>`(200), 헤더 `X-Evil: <b>bold</b>‮gpj.exe`(200), 헤더에 ESC(`X-Esc: a\x1b[31mred`) → 400, 요청 대상에 U+202E(UTF-8) → 400.
+    - 처음 열기: 확장의 navigate로 대시보드 주소 → **403**(대시보드 고정 문구). 원인 [확인됨]: 진단 서버(`node -e "…r.end(JSON.stringify(q.headers…)).listen(18095…)"`)로 같은 방법으로 열면 `sec-fetch-site: cross-site`. 확장의 키 입력으로 주소창에 쓰는 것은 페이지 안으로 가서 흉내 낼 수 없었다. 페이지에서 `location.reload()` → `sec-fetch-site: same-origin`. 그래서 403 페이지(같은 출처)에서 `location.reload()`로 대시보드를 열었다.
+    - ① 목록 5건 ✅ ② POST /x 상세: `Cookie k=CURL-COOKIE`, 요청 본문 `curl-body`, 응답 본문 `upstream-saw:curl-body` ✅ ③ 열어 둔 채 `curl.exe … --data-binary live-body http://127.0.0.1:18090/live-new` → 새로고침 없이 목록에 `/live-new` ✅ ④ 메서드 필터 POST → "필터 결과 2건"(/live-new, /x) ✅ ⑤ `<img…>` 경로와 `<b>bold</b>` 헤더는 글자 그대로, `document.querySelectorAll('img').length` 0, `b` 0, 콘솔 오류 0 ✅ — **그러나** 경로의 U+202E는 프록시가 400으로 막아 기록할 수 없었고, 헤더의 U+202E는 latin1로 읽혀 `â⟨U+0080⟩®`로 보였다(원래 U+202E는 화면에 0개). ⑥ "HTTPS 복호화가 꺼져 있습니다…" ✅. 스크린샷 `docs/for-me/img/UI-5-dashboard.jpg`. 끈 뒤 18080·18081·18090·18095 LISTENING 0.
+    - 판정: ⑤의 "⟨U+202E⟩ 표시" 부분을 예상대로 볼 수 없어 불일치. 예상이 틀린 이유: 요청 대상의 비ASCII는 프록시가 받지 않고(Node 파서), 헤더 값은 latin1 문자열로 저장된다는 것을 계획 때 확인하지 않았다 [추측: Node http의 동작]. 화면의 ⟨U+202E⟩ 표시는 Node 테스트(showHidden, bodyText)로만 확인됨.
+- 계획과 달라진 점: E190 불일치(위). 확장이 연 탭은 403 — 브라우저 실측 방법을 바꿈.
+- hook이 막은 것: `git commit …&& start=$(date +%s); timeout 400 npm test …` — "커밋·병합과 같은 명령 안에서 … 환경 변수를 바꿀 수 없습니다(규칙 D)". 셸 변수 대입을 환경 변수 설정으로 본 것 — 의도한 보수적 동작으로 기록(명령을 나누면 됨). `.claude/state/` 읽기 막힘은 UI-4 기록 참조.
+- 새 미확인(세션 밖 조건 필요 — 사용자가 실제로): 터미널의 대시보드 주소를 누르거나 주소창에 붙여 넣었을 때 `Sec-Fetch-Site: none`이 가서 열리는지 [추측: 열림]. 시점: UI 큰 단위 보고서 실측.
+- 범위 밖 관찰: (1) 헤더 값의 비ASCII가 latin1로 저장·표시된다(PRX-2 기록 방식) → UI 보고서 결정 항목(화면에서 UTF-8로 다시 풀지). (2) 요청 대상에 비ASCII가 있으면 프록시가 400 — 브라우저는 퍼센트 인코딩해서 보내므로 실제로는 드묾 [추측].
+- UI 보고서 결정 항목: `docs/for-me/UI-5.md` "UI 보고서에 올릴 결정"(UI-5b 나눔·U21/U28 재배정 포함, O28).
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
