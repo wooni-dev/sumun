@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[STO-5]** 진행 중(feat/STO-5). 아래는 지난 세션 종료 기록.
+- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). 다음은 아래 "다음 세션 첫 일"의 3번(INFRA: O47~O52 반영), 그다음 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
 - 지난 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 8b494f4. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
   - 이번 세션에 끝낸 것: 사용자 확인 3건(SEC-3 테스트 수정 허용, O47 보류, 예전 프로세스 종료) → SEC-3 테스트 수정(c8b1b43) → STO-T → STO-1 → STO-2 → STO-3 → STO-4 → STO 감사(AUDIT-7)·검토·보고서(AUDIT-8) → **STO 보고서 승인**(결정 1~15 모두 추천대로, 이 기록 커밋).
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
@@ -975,6 +975,13 @@
   - E152: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0(테스트 수 647은 참고값). 판정: 실패 0이고 "큰 단위 대기" 줄이 없거나 0이면 일치.
   - E153 실측(O31): `node scripts/probe/sto4-cli.mjs`(실제 curl이 `npm start`를 거침) → curl 200·502, 출력 3줄, 표식 stdout·stderr false. 판정: 셋 다 STO-4 때(E150)와 같으면 일치.
   - E154: `node scripts/probe/sto-final-review/r3-order.mjs` 7번(상한 10,000바이트에 50,000바이트 완료 하나) → 남길 완료가 없으므로 이벤트는 그대로 `["start:1","done:2","evicted:1"]`. 판정: 이 배열과 같으면 일치.
+- 실측 (명령 원문):
+  - E151 일치(493ff2a 커밋 전, 코드 eaa95c5): `npm run test:red -- test/sto/STO-5.test.ts` → tests 4 / fail 4, 모두 AssertionError(R2 둘은 deepEqual, R7 둘은 Missing expected exception), 오류 0. `npm test -- test/sto/STO-5-regression.test.ts` → 2 / 2.
+  - E152 일치(994bc01): `npm test` → tests 647 / pass 647 / fail 0 / todo 0, "큰 단위 대기" 줄 없음.
+  - E153 일치(994bc01): `node scripts/probe/sto4-cli.mjs` → curl 200·502, 출력 3줄(시작 줄 + 요약 2줄), 표식 stdout·stderr false, stderr 0자.
+  - E154 일치(994bc01): `node scripts/probe/sto-final-review/r3-order.mjs` 7번 → 이벤트 `["start:1","done:2","evicted:1"]`, 목록 `["2:done"]`.
+- 계획과 달라진 점: 없음. 테스트 기대값은 처음 쓴 그대로. 사용자 문서 `docs/for-me/STO-2.md`도 고침(계획 범위에 적은 대로 — 빼는 순서 ③과 실제 메모리 약 330MB).
+- 범위 밖 관찰: 없음.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
