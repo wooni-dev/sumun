@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [STO-4] 프록시 연결·실행 진입점(브랜치 feat/STO-4). STO-1~3 완료. 이 단위가 끝나면 STO 큰 단위 마무리(감사·검토·보고서). STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
+- 작업: STO 하위 노드 모두 완료 → STO 🔨 확인 대기(O37). 큰 단위 마무리: 감사(method-auditor) → 검토 에이전트(목표 문서와 코드만) → 보고서 `docs/for-me/STO-report.md`. STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -941,6 +941,12 @@
   - E148: 새 동작 테스트는 stub(빈 함수만 export한 `src/store/attach.ts` — 아무것도 하지 않는 두 콜백, 두 번 불러도 오류 없음)에서 모두 assertion 실패, 오류 0(O2). 회귀 테스트는 구현 전에도 모두 통과. 판정: 새 동작 실패 수 = 테스트 수·오류 0, 회귀 실패 0.
   - E149: 구현 뒤 `npm test` 실패 0, **대기 0**(STO-T가 실제로 돌아 2개 통과). 판정: 실패 0이고 "큰 단위 대기(todo) STO" 줄이 없거나 0개면 일치.
   - E150 실측(O31): `npm start -- --port <빈 포트>`를 띄우고 실제 curl로 평문 요청 2개(목적지 200, 닫힌 포트 502)를 보내면, 출력은 시작 줄 1개 + 요약 줄 2개이고 쿠키·본문 표식이 없다. 판정: 줄 수와 표식 없음이 둘 다면 일치(`node scripts/probe/sto4-cli.mjs`).
+- 실측 (명령 원문):
+  - E148 일치(f501b21): stub으로 `npm run test:red -- test/sto/STO-4.test.ts` → 4개 모두 assertion 실패, 오류 0. `npm test -- test/sto/STO-4-regression.test.ts` → 1 / 1. 첫 실행은 끝나지 않았다(B7이 stub에서 실패하면 finally가 프록시를 닫지 않음) → 실행을 멈추고 내가 띄운 node 프로세스 4개(PID 8216·8392·1536·14908)를 종료한 뒤 테스트를 고쳤다(커밋 메시지).
+  - E149 일치(9534583): `npm test` → tests 641 / pass 641 / fail 0 / todo 0, 종료 코드 0, "큰 단위 대기" 줄 없음 — STO-T 2개가 실제로 통과.
+  - E150 일치(9534583): `node scripts/probe/sto4-cli.mjs` → curl 200·502, 출력 3줄(시작 줄 + 요약 2줄), 표식 stdout·stderr 모두 false, stderr 0자.
+- 계획과 달라진 점: 없음. 회귀 파일 `test/sto/STO-4-regression.test.ts`는 계획대로.
+- 범위 밖 관찰: 없음.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
