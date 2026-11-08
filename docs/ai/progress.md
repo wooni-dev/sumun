@@ -1133,6 +1133,7 @@
   - E168 일치(79ad7b3): `npm test` → 종료 코드 0, tests 705 / pass 703 / fail 0 / todo 2, "큰 단위 대기(todo) UI: 2개, 그중 실패 2개".
 - 계획과 달라진 점: 없음.
 - 범위 밖 관찰: 없음(X1은 계획에 기록).
+- [UI-T] 완료: 0740342..daa2972, 병합 829003e. `node scripts/check-method.mjs --id UI-T`(829003e) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅).
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
