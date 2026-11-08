@@ -3,6 +3,12 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
+- 2026-11-09: **UI 보고서 결정 10 — 실제 CA 최종 확인 끝 → UI ✅**(보고서 승인 조건). 한 줄 보고: 목표 = 실제 루트 CA로 일반 Chrome에서 진짜 HTTPS 사이트가 대시보드에 보이는지·사람이 주소를 열면 열리는지 확인 / 범위 = 새 `scripts/probe/ui-final-ca.mjs`, `docs/for-me/UI-report.md`(머리·실행 증거 5·결정 23·24), `docs/ai/purpose-tree.md`(UI ✅), `docs/ai/progress.md` / 하지 않을 것 = 코드 수정, 인증서 등록·해제(사용자가 직접).
+  - 결과 [확인됨]: 사용자가 CA 등록(090295D7…4459) → `npm.cmd start -- --decrypt` → curl `-k` 없이 example.com 200 → `node scripts/probe/ui-final-ca.mjs "<대시보드 주소>" "https://www.z-emotion.com/"`: 경고 없음(발급자 sumun CA, secure), 실시간 242→378줄, 상세, 필터 `z-emotion.com` 311건 / `z-emotion` 0건 → Chrome 확장 탭은 403(cross-site, 설계대로) → 사용자가 주소창에 붙여 넣어 "열림" → 사용자가 해제, status "등록 안 됨", 프록시 끔. 자세히는 UI-report.md 실행 증거 5.
+  - 새 결정(승인 전): 23 호스트 필터 부분 일치(추천: 그대로 + 0건 안내), 24 UI-6 재배정 항목(추천: SEC에서).
+  - 미확인(세션 밖, 남음): Edge·Firefox·Windows 시스템 프록시 설정 → SEC 큰 단위.
+  - 지금 루트 CA는 **등록 안 됨**(2026-11-09 사용자 해제).
+  - 다음: 결정 23·24 답 → INFRA(O55~O61) → SEC 큰 단위.
 - 세션 종료(2026-11-08 자정 무렵). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 796개 모두 통과, 실패 0, 대기 0(4ecb95d 코드 기준, 두 번 — 그 뒤는 실측 스크립트·문서만).
   - 이번 세션(/clear 뒤)에 끝낸 것: UI 큰 단위 끝 1~5단계(감사 [AUDIT-12], 보고서 `docs/for-me/UI-report.md` [AUDIT-13·14], 승인 [AUDIT-15] "모두 추천대로", 결정 4만 다시 여쭤 "메모리에만") → [UI-6] 화면 고침(검토 사례 ui6-cases K1~K37, 테스트 수정 허용 1건 4ecb95d, 병합 e10f397).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T·UI-1~6·UI-2b·UI-5b 모두 ✅ — 남은 것은 결정 10 최종 확인), SEC은 SEC-3 ✅.

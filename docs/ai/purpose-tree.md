@@ -54,7 +54,7 @@
  │   ├ [STO-4] 프록시 연결(시작·끝 함께, 프록시 하나)과 실행 진입점   ✅  → src/store/attach.ts, src/index.ts  의존: STO-1~3
  │   └ [STO-5] 바이트 상한은 완료부터·남길 완료가 없을 때만 진행 중(R2, 사용자 답 2026-11-08), 모르는 필터 조건 이름은 오류(R7)   ✅  → src/store/store.ts, src/store/filter.ts  (STO 보고서 결정 2·7)
  │         (STO-1~4: 2026-11-08 Claude가 나눔, STO-5: STO 보고서 결정 — 작은 기능 추가, 보고서 승인 2026-11-08)
- ├ [UI] 대시보드 — 왜: 목록 + 상세 + 필터를 실시간으로 보기              🔨 (보고서 승인 2026-11-08 — UI-6과 실제 CA 최종 확인 뒤 ✅)  → src/dashboard/  의존: STO
+ ├ [UI] 대시보드 — 왜: 목록 + 상세 + 필터를 실시간으로 보기              ✅ (보고서 승인 2026-11-08, UI-6과 실제 CA 최종 확인 2026-11-09 끝 — UI-report.md 실행 증거 5)  → src/dashboard/  의존: STO
  │   ├ [UI-T] 큰 단위 테스트: STO-T 행동 → 대시보드 페이지·API(토큰)·필터·상세·본문·실시간 알림·지우기, 다른 출처·리바인딩 Host·프록시를 거친 요청은 거부   ✅ (대기 풀림 2026-11-08: UI-5가 app.js를 만듦, 2개 통과)  → test/ui/UI-T.test.ts
  │   ├ [UI-1] 서버 골격과 요청 보호: 127.0.0.1·포트 점유, Host·Origin·Sec-Fetch-Site·Via, 실행마다 토큰, 보안 헤더, npm start 연결   ✅  → src/dashboard/server.ts, src/cli.ts, src/index.ts  (ui-cases.md 배정 "UI-1")
  │   ├ [UI-2] 프록시 쪽 대시보드 차단: 대시보드 포트로 가는 평문·CONNECT 거부와 안내   ✅  → src/proxy/server.ts, src/tls/, src/index.ts  (배정 "UI-2", 사례 ui2-cases.md)

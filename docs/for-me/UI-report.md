@@ -1,6 +1,8 @@
 # [UI] 중간 확인 보고서 (큰 단위: 대시보드)        2026-11-08, main = fa48a6b
 
 > **사용자 답: 승인(2026-11-08)** — "모두 추천대로 진행해". 결정 1~22 모두 추천대로: 1·3·4·5·6·8·9 = **UI-6**에서 고침(필터 스로틀 1초, 터널 "끝남" 표시, 토큰을 sessionStorage로 옮기고 주소에서 지움, 빈 아이콘, 헤더 UTF-8로 다시 풀어 보이기, loopback 안내는 조합 실측 뒤, 403 문구 순서), 2·7 = 지금대로·기록, 10 = UI-6 뒤 사용자와 함께 실제 CA로 최종 확인, 11~18 승인, 19·20 = 지금대로 + 사용자 문서에 적음(SEC에서 다시 봄), 21 = O55~O61 승인(반영은 INFRA 작은 단위), 22 = UI-6 → 최종 확인 → UI ✅ → INFRA → SEC. **UI는 UI-6과 최종 확인이 끝나면 ✅**.
+>
+> **최종 확인(결정 10) 끝 — 2026-11-09**: ⓐ 실제 루트 CA 등록 + `npm start -- --decrypt` + 프록시를 쓰는 Chrome으로 실제 사이트(www.z-emotion.com)가 인증서 경고 없이 열렸고, 대시보드에 실시간·상세·필터로 보였다. ⓑ 사람이 주소창에 대시보드 주소를 붙여 넣으면 열렸다. 등록·해제는 사용자가 직접 했다 → 실행 증거 5. 이로써 UI ✅(위 승인 조건).
 
 ## 결과 요약
 - 작은 단위 8개(UI-T, UI-1, UI-2, UI-2b, UI-3, UI-4, UI-5, UI-5b) 완료. 전체 테스트 **783개 통과 / 0개 실패 / 큰 단위 대기 0** [확인됨: 실행 증거 1]
@@ -120,3 +122,25 @@
    {"p1-console-problems":{"dash":[{"kind":"log.network","text":"Failed to load resource: … 404 (Not Found)","url":"http://127.0.0.1:<포트>/favicon.ico"}],…}}
    ```
    나머지(R2·R3·R4·R6, IPv6 표기, SSE 상한, 1,202건, 다시 시작)는 검토 에이전트의 실행 결과다: `api-flow.mjs`, `proxy-ipv6.mjs`, `pending-limits.mjs`, `restart-bind.mjs`(모두 `node scripts/probe/ui-final-review/<파일>`).
+5. 실제 CA 최종 확인(결정 10, 2026-11-09, main = 43c0676 코드) [확인됨]
+   - 사용자(직접 연 PowerShell): `npm.cmd run ca -- install` → `yes` → "등록됨 — 지문 090295D7C1EC2FBEC70E5BC849791A4DDE0E4459". Claude가 `npm.cmd run ca -- status` → "사용자 Root: 등록됨".
+   - Claude: `npm.cmd start -- --decrypt` → "127.0.0.1:8080 에서 프록시를 시작했습니다 … 대시보드: http://127.0.0.1:8081/#t=<토큰>", "HTTPS 복호화를 켰습니다".
+   - curl(Schannel, `-k` 없음): `curl.exe -s -o NUL -w "%{http_code} %{ssl_verify_result}" --ssl-no-revoke -x http://127.0.0.1:8080 https://example.com/` → `200 0`.
+   - Chrome(headless 156, 임시 프로필, `--proxy-server=127.0.0.1:8080`, 인증서 무시 플래그 없음): `node scripts/probe/ui-final-ca.mjs "<대시보드 주소>" "https://www.z-emotion.com/"`
+     | 단계 | 결과 |
+     |---|---|
+     | 대시보드(주소로 이동 = `Sec-Fetch-Site: none`) | 열림, 머리 "sumun · 실시간", 주소 `/`(토큰 지워짐) |
+     | 사이트 | `https://z-emotion.com/ko` 200, 제목 "z-emotion", 경고 화면 없음, 인증서 발급자 `sumun local CA 2026-11-08`, Chrome 보안 상태 `secure` |
+     | 실시간 | 새로고침 없이 242 → 378줄, `GET https://www.z-emotion.com/ 301` |
+     | 상세 | 목적지 `www.z-emotion.com 포트 443`, `TLS SNI www.z-emotion.com`, 요청 헤더(`Sec-Fetch-Site none` …), 본문 0바이트 |
+     | 필터(호스트) | `z-emotion.com` → 311건, 호스트는 `z-emotion.com`·`www.z-emotion.com`만 / `z-emotion`(이름 일부) → 0건(부분 일치는 하지 않는 설계 — `src/store/filter.ts` hostMatches, 아래 결정 23) |
+     - 목록에는 사용자의 프록시 Chrome 요청도 섞여 있었다(주소창 자동완성 요청 등).
+   - 사람이 주소를 열기(ⓑ): Claude의 Chrome 확장 탭은 `cross-site`로 보여 403 안내문(설계대로 — UI-5b와 같음), 확장의 키 입력은 주소창에 닿지 않음. **사용자가 주소창에 붙여 넣어 열었더니 "열림"**.
+   - 사용자: `npm.cmd run ca -- uninstall` → `yes` → "해제됨 — 지문 090295D7C1EC2FBEC70E5BC849791A4DDE0E4459". Claude가 `npm.cmd run ca -- status` → "사용자 Root: 등록 안 됨, 컴퓨터 Root: 없음". 프록시를 끄고 8080·8081 대기 없음을 확인.
+   - 보지 못한 것: Edge·Firefox, Windows 시스템 프록시 설정(이번에는 Chrome 플래그만 씀) → SEC 큰 단위에서 다시 본다.
+
+## 최종 확인 뒤 결정할 항목 (2026-11-09, 승인 전)
+| # | 무엇 | 선택지 | 추천 | 이유 |
+|---|---|---|---|---|
+| 23 | 호스트 필터에 이름 일부(`z-emotion`)를 넣으면 0건. 지금은 "같은 도메인이거나 그 하위 도메인"만 맞다 | ① 그대로 두고, 0건일 때 "도메인 전체(예: example.com)를 넣으세요" 안내 ② 부분 일치(글자 포함)로 바꿈 | ① | 부분 일치는 `ample.com`이 `example.com`에 맞는 식의 헷갈림이 있고, 저장소 필터 규칙(STO)을 바꿔야 한다. 안내 한 줄은 화면만 고치면 된다 |
+| 24 | UI-6에서 재배정한 것: 토큰이 Chrome 프로필(방문 기록 등)과 403 화면 주소에 남음(K14·K19·K24), 이모지 표시 선택자 U+FE0F(K8), 범위 밖 X1~X4 (`docs/for-me/UI-6.md`) | ① SEC 큰 단위에서 다시 봄 ② 지금 작은 단위로 | ① | 모두 "보안 경계"에 걸린 일이라 SEC에서 한 번에 보는 편이 같은 일을 두 번 하지 않는다. 토큰은 실행마다 바뀌어 남은 값의 위험이 그 실행 동안으로 줄어든다 |
