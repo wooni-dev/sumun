@@ -75,7 +75,7 @@ export async function checkConnect(o: {
   selfPort: number;
   lookup: Lookup;
   rejected?: { status: number; message: string; code: 'rejected' | 'loop' };
-}): Promise<{ ok: { host: string; port: number; address: string } } | { refuse: Refusal } | { aborted: true }> {
+}): Promise<{ ok: { host: string; port: number; address: string; addresses: string[] } } | { refuse: Refusal } | { aborted: true }> {
   const no = (status: number, message: string, error: NonNullable<Flow['error']>) => ({ refuse: { status, message, error } });
   if (o.rejected) return no(o.rejected.status, o.rejected.message, { by: 'proxy', code: o.rejected.code, status: o.rejected.status });
   // 결정 5: CONNECT에는 본문이 없다(RFC 9110 9.3.6). 본문 헤더가 있으면 경계 해석이 갈려 스머글링의 재료가 된다 (R2)
@@ -97,7 +97,7 @@ export async function checkConnect(o: {
   }
   if (o.socket.destroyed) return { aborted: true };
   if (isLoopTarget(addresses, port, o.selfPort)) return no(508, '요청이 이 프록시로 되돌아옵니다.', { by: 'proxy', code: 'loop', status: 508 });
-  return { ok: { host, port, address: addresses[0] } };
+  return { ok: { host, port, address: addresses[0], addresses } }; // addresses = 검사한 주소 전부(루프 검사를 모두 통과)
 }
 
 // 터널 하나의 수명. 결과는 finish로 정확히 한 번 알린다(사례 S2)
