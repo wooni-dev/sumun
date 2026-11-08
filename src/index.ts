@@ -8,6 +8,7 @@ import { loadOrCreateCA, defaultCADir, type CA } from './ca/ca.ts';
 import { parseArgs, formatSummary, safeText } from './cli.ts';
 import { createStore } from './store/store.ts';
 import { attachStore } from './store/attach.ts';
+import { startDashboard } from './dashboard/server.ts';
 
 const fatal = (message: string): never => {
   process.stderr.write(`sumun: ${message}\n`);
@@ -19,8 +20,8 @@ const fatal = (message: string): never => {
 process.on('uncaughtException', (err: NodeJS.ErrnoException) => fatal(`예상하지 못한 오류로 종료합니다(${safeText(String(err?.code ?? err?.name ?? '알 수 없음'), 40)}).`));
 
 const args = parseArgs(process.argv.slice(2));
-if ('error' in args) fatal(`${args.error}\n사용법: npm start -- --port 8080 [--decrypt]`);
-const { port, decrypt } = args as { port: number; decrypt?: true };
+if ('error' in args) fatal(`${args.error}\n사용법: npm start -- --port 8080 [--decrypt] [--dashboard-port 8081 | --no-dashboard]`);
+const { port, decrypt, dashboard, dashboardPort } = args as { port: number; decrypt?: true; dashboard?: false; dashboardPort?: number };
 
 // [TLS-4] --decrypt: 루트 CA를 %LOCALAPPDATA%\sumun\ca에서 불러오거나 처음이면 만든다(Windows 저장소 등록은 하지 않음 — SEC-3).
 // 깨졌거나 만료된 CA는 고치지 않고 멈춘다(TLS-2 사용자 결정). 오류에는 경로만 있고 키는 없다
@@ -62,8 +63,24 @@ try {
   fatal(`시작하지 못했습니다(${safeText(String(code ?? '알 수 없는 오류'), 40)}).`);
 }
 
-// M2: listen이 성공한 뒤에만, 실제 주소로
-process.stdout.write(`sumun: 127.0.0.1:${proxy!.port} 에서 프록시를 시작했습니다. 브라우저 프록시를 이 주소로 설정하세요. 끝내려면 Ctrl+C\n`);
+// [UI-1] 대시보드(D-12 기본 켬). 기본 포트 = 프록시 포트 + 1(기본 실행이면 8081 — D-1). 못 쓰면 시작하지 않는다(U41)
+let dash: Awaited<ReturnType<typeof startDashboard>> | undefined;
+if (dashboard !== false) {
+  const dport = dashboardPort ?? (port < 65535 ? port + 1 : port - 1);
+  try {
+    dash = await startDashboard({ store, port: dport });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'EADDRINUSE') fatal(`대시보드 포트 ${dport}를 이미 다른 프로그램이 쓰고 있습니다. 다른 포트로 시작하세요: npm start -- --dashboard-port 9001`);
+    if (code === 'EACCES') fatal(`대시보드 포트 ${dport}를 쓸 권한이 없습니다(Windows가 예약한 포트일 수 있습니다).`);
+    fatal(`대시보드를 시작하지 못했습니다(${safeText(String(code ?? '알 수 없는 오류'), 40)}).`);
+  }
+}
+
+// M2: listen이 성공한 뒤에만, 실제 주소로. [UI-1] 대시보드 주소(#t=토큰, D-3)는 같은 줄 끝에 붙인다(시작 출력은 한 줄)
+process.stdout.write(
+  `sumun: 127.0.0.1:${proxy!.port} 에서 프록시를 시작했습니다. 브라우저 프록시를 이 주소로 설정하세요. 끝내려면 Ctrl+C${dash ? ` / 대시보드: ${dash.url} (이 주소는 실행마다 바뀌고, 남에게 보여 주면 기록을 볼 수 있습니다)` : ''}\n`,
+);
 if (ca) process.stdout.write(`sumun: HTTPS 복호화를 켰습니다. 루트 CA: ${safeText(defaultCADir(), 300)}\\ca-cert.pem (Windows에 등록하기 전에는 브라우저가 경고합니다)\n`);
 
 // D7: Ctrl+C → 연결을 모두 닫고 종료(코드 0). 2초 안에 안 끝나거나 Ctrl+C를 한 번 더 누르면 바로 끝낸다
@@ -72,5 +89,5 @@ process.on('SIGINT', () => {
   if (stopping) process.exit(0);
   stopping = true;
   setTimeout(() => process.exit(0), 2000).unref();
-  proxy.close().then(() => process.exit(0));
+  Promise.all([proxy.close(), dash?.close()]).then(() => process.exit(0));
 });

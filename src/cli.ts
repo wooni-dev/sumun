@@ -25,11 +25,16 @@ export function safeText(s: string, max = HOST_MAX): string {
 // 중복·모르는 인자는 거부한다. 환경 변수는 읽지 않는다 — 바인딩 주소(127.0.0.1)는 어떤 입력으로도 바뀌지 않는다.
 // [TLS-4] `--decrypt`: HTTPS를 복호화한다(사용자 결정 2026-11-08 — 루트 CA를 등록하기 전에는 브라우저가 경고하므로 기본은 끔).
 // 줄 때만 결과에 decrypt: true를 붙인다(없을 때의 모양은 PRX-4 그대로)
-export function parseArgs(argv: string[]): { port: number; decrypt?: true } | { error: string } {
+// [UI-1] `--no-dashboard`(대시보드를 켜지 않음), `--dashboard-port N`(기본은 src/index.ts가 정한다 — 프록시 포트 + 1).
+// 줄 때만 결과에 dashboard: false / dashboardPort: N을 붙인다(없을 때의 모양은 그대로). 둘을 함께 주거나 프록시 포트와 같으면 오류
+const PORT_RE = /^[1-9][0-9]{0,4}$/;
+export function parseArgs(argv: string[]): { port: number; decrypt?: true; dashboard?: false; dashboardPort?: number } | { error: string } {
   // 오류 메시지 속 입력값: 이스케이프하고 40자까지만(L10). 잘림 표시도 ASCII로 쓴다
   const show = (v: string) => `"${safeText(v.slice(0, 40), 1000)}${v.length > 40 ? '...' : ''}"`;
   let port: number | undefined;
   let decrypt = false;
+  let noDashboard = false;
+  let dashboardPort: number | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     let v: string;
@@ -38,16 +43,39 @@ export function parseArgs(argv: string[]): { port: number; decrypt?: true } | { 
       decrypt = true;
       continue;
     }
+    if (a === '--no-dashboard') {
+      if (noDashboard) return { error: '--no-dashboard는 한 번만 줄 수 있습니다.' };
+      noDashboard = true;
+      continue;
+    }
+    if (a === '--dashboard-port' || a.startsWith('--dashboard-port=')) {
+      if (a === '--dashboard-port') {
+        if (i + 1 >= argv.length) return { error: '--dashboard-port 뒤에 포트 번호가 필요합니다.' };
+        v = argv[++i];
+      } else v = a.slice('--dashboard-port='.length);
+      if (dashboardPort !== undefined) return { error: '--dashboard-port는 한 번만 줄 수 있습니다.' };
+      if (!PORT_RE.test(v) || Number(v) > 65535) return { error: `대시보드 포트는 1~65535의 정수여야 합니다: ${show(v)}` };
+      dashboardPort = Number(v);
+      continue;
+    }
     if (a === '--port') {
       if (i + 1 >= argv.length) return { error: '--port 뒤에 포트 번호가 필요합니다.' };
       v = argv[++i];
     } else if (a.startsWith('--port=')) v = a.slice('--port='.length);
     else return { error: `알 수 없는 인자입니다: ${show(a)}` };
     if (port !== undefined) return { error: '--port는 한 번만 줄 수 있습니다.' };
-    if (!/^[1-9][0-9]{0,4}$/.test(v) || Number(v) > 65535) return { error: `포트는 1~65535의 정수여야 합니다: ${show(v)}` };
+    if (!PORT_RE.test(v) || Number(v) > 65535) return { error: `포트는 1~65535의 정수여야 합니다: ${show(v)}` };
     port = Number(v);
   }
-  return decrypt ? { port: port ?? DEFAULT_PORT, decrypt: true } : { port: port ?? DEFAULT_PORT };
+  const out: { port: number; decrypt?: true; dashboard?: false; dashboardPort?: number } = { port: port ?? DEFAULT_PORT };
+  if (decrypt) out.decrypt = true;
+  if (noDashboard && dashboardPort !== undefined) return { error: '--no-dashboard와 --dashboard-port는 함께 줄 수 없습니다.' };
+  if (noDashboard) out.dashboard = false;
+  if (dashboardPort !== undefined) {
+    if (dashboardPort === out.port) return { error: '대시보드 포트는 프록시 포트와 달라야 합니다.' };
+    out.dashboardPort = dashboardPort;
+  }
+  return out;
 }
 
 // 요약 한 줄: "시각 메서드 호스트:포트 상태(또는 실패 코드 상태) 소요ms". 모양이 깨진 기록에도 예외를 던지지 않는다(M8).
