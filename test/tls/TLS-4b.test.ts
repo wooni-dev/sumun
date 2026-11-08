@@ -55,10 +55,16 @@ const open = async (host: string, port: number, o: tls.ConnectionOptions = {}) =
 test('D4: 200 뒤 ClientHello가 오지 않으면 tlsHandshakeTimeoutMs(300ms) 뒤 닫고 CONNECT 기록 timeout / 핸드셰이크가 끝난 연결은 그보다 오래 쉬어도 유지', async () => {
   const up = await upstream(await issueCert(ctx.upCA, ['localhost']));
   try {
-    const m = await connectMitm(ctx.proxy.port, 'localhost', up.port);
-    assert.equal(m.status, 200, '전제: CONNECT는 받았다');
+    // 원시 소켓: CONNECT만 보내고 200을 읽은 뒤 아무것도 보내지 않는다
+    // [TLS-4b 구현 뒤 고침, 사용자 허용 2026-11-08: 처음에는 connectMitm을 썼는데, 그 도우미는 200 뒤 곧바로 TLS를 시작해 ClientHello를 보낸다]
+    const raw = net.connect(ctx.proxy.port, '127.0.0.1');
+    raw.on('error', () => {});
+    await new Promise<void>((r) => raw.once('connect', () => r()));
+    raw.write(`CONNECT localhost:${up.port} HTTP/1.1\r\nHost: localhost:${up.port}\r\n\r\n`);
+    const head = await new Promise<string>((r) => raw.once('data', (d) => r(String(d))));
+    assert.match(head, /^HTTP\/1\.1 200 /, '전제: CONNECT는 받았다');
     let closed = false;
-    m.raw.once('close', () => (closed = true));
+    raw.once('close', () => (closed = true));
     const t0 = Date.now();
     await until(() => closed, 3000);
     assert.equal(closed, true, '핸드셰이크 없이 열린 채로 남지 않는다');
