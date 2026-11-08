@@ -827,6 +827,27 @@
   - E138 일치(cd27f80): `scripts/probe/sto-review`에서 `node e2-proxy.mjs` → "E14 … s2 s3 f1 f2 f3", `node e3-mitm.mjs` → "E8b … 끝이 없는 시작 1:CONNECT", `node e5-reject.mjs` → 종료 코드 1. 처음에는 계획 커밋 전에 한 번 돌려 봤고(결과 같음), 판정은 계획 커밋 뒤 다시 돌린 것으로 했다.
 - 계획과 달라진 점: 없음.
 - [STO-T] 완료: 4ff4d7a..3e8deb2, 병합 9f356b1 + 이 기록 커밋. `node scripts/check-method.mjs --id STO-T`(9f356b1) → 11개 모두 ✅(message-format 포함). 다음: STO-1.
+
+### [STO-1] 계획
+- 근거: STO-T 계획의 작은 단위 순서. 사례 배정 `docs/ai/sto-cases.md` "STO-1"(A4, A7, A8, A9, B1, B4, B5, B6, B8, C2~C10, D11, E1, E2, E3, E5), 결정 S-2·S-3·S-4·S-5·S-9·S-10.
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 보안 사례(O10): STO-T 계획 때 받은 sto-cases.md를 쓴다(새 검토 없음 — 같은 단위의 사례).
+- 설계 [추측]: `createStore(opts?)` → `{ runId, addStart(start), addFlow(flow), list(), get(id), subscribe(fn) → 해제 함수, clear(), stats() }`.
+  - 진행 중: `addStart`는 CONNECT가 아니면 진행 중 요약을 만든다(S-2). `addFlow`가 오면 완료로 바꾼다. 시작 없이 온 완료도 저장(B1). 완료 뒤 늦게 온 시작은 무시(B6). `clear()` 전에 시작한 요청의 완료는 버린다(S-5).
+  - 요약(S-3·S-4): `{ id, runId, state, startedAt, method, url, target?, status?, statusFrom?, error?, durationMs?, requestSize?, responseSize?, tunnel? }` — 본문·헤더 없음. 매번 새 객체.
+  - 상세: `get(id)` → 본문을 각자 자기 메모리(`allocUnsafeSlow`)로 복사하고 헤더·target·error를 복사한 Flow 사본(C9·C10).
+  - 알림: 동기로 부르되, 알림 중에 생긴 알림(구독자가 clear·add 호출)은 지금 알림이 모든 구독자에게 간 뒤에 보낸다(C8). 구독자 목록은 알림 시작 때의 것(C6·C7). throw·reject는 삼키고 `stats().subscriberErrors`만 센다, 출력 없음(S-10, C2~C5).
+  - 출력 안전: `util.inspect`·`String`·`JSON.stringify(store)`에 기록 내용이 나오지 않는다(E1·E3). 잘못된 입력의 오류 문구는 고정(E2).
+  - 상한(STO-2), 필터(STO-3), 프록시 연결(STO-4)은 이 단위에서 하지 않는다.
+- 한 줄 보고: 목표 = 기록을 메모리에 보관하고 요약 알림·목록·상세 사본을 주는 저장소 핵심 / 범위 =
+  - 새 `src/store/store.ts`: `createStore()`, `toSummary()`, `copyFlow()`, 알림 큐
+  - 새 `test/sto/STO-1.test.ts`(새 동작), 회귀가 있으면 새 `test/sto/STO-1-regression.test.ts`
+  - `docs/ai/sto-cases.md`(배정 결과), `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/STO-1.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 상한·필터·프록시 연결·index.ts, 프록시·TLS 코드 변경
+- 예상 [추측] (판정 기준 포함):
+  - E139: 새 동작 테스트는 stub(빈 함수만 export한 `src/store/store.ts`)에서 모두 assertion 실패, 오류 0(O2). 판정: 실패 수 = 테스트 수, 오류 0.
+  - E140: 구현 뒤 `npm test` 실패 0, 출력에 "큰 단위 대기(todo) STO: 2개"(attach.ts가 아직 없음). 판정: 둘 다면 일치.
+  - E141 [탐색]: 1MiB 본문 기록 1,000건에서 `JSON.stringify(store.list())`의 길이 — 요약만 나가는지 크기로 기록한다(`scripts/probe/sto1-summary-size.mjs`).
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
