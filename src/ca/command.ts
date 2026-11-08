@@ -29,7 +29,10 @@ export type CaDeps = {
   checkDir: (dir: string) => Promise<string | null>;
   input: { isTTY: boolean; readLine: () => Promise<string | null> };
   write: (s: string) => void;
+  // [SEC-3] 작업 기록(한 줄씩). 단계·지문·certutil 종료 코드·결과만 — 키·비밀 없음. 창을 닫아도 실패 원인이 남게(해제 실측 결함, a9c341e)
+  log?: (line: string) => void;
 };
+const note = (deps: CaDeps, msg: string) => deps.log?.(`${new Date().toISOString()} ${msg}`);
 
 const CERT_FILE = 'ca-cert.pem';
 const SUMUN_CN = /^sumun local CA \d{4}-\d{2}-\d{2}$/;
@@ -100,11 +103,16 @@ function collides(token: string, others: StoreCert[]): boolean {
   });
 }
 
-async function ask(deps: CaDeps, question: string): Promise<boolean> {
-  deps.write(`${question} 계속하려면 yes를 입력하세요(그 밖의 입력은 취소): `);
+// "예"의 뜻인 입력 — 여전히 취소하지만(결정 C1) 영어 yes를 쳐야 한다고 알려 준다. 해제 실측에서 이 혼동이 의심됐다(a9c341e)
+const MEANS_YES = /^(?:예|네|응|ㅇ|y|ye|yes[.!]?|ok|okay)$/i;
+async function ask(deps: CaDeps, question: string, step: string): Promise<boolean> {
+  deps.write(`${question} 계속하려면 영어로 yes를 입력하세요(그 밖의 입력은 취소): `);
   const line = await deps.input.readLine();
   deps.write('\n');
-  return line !== null && line.trim() === 'yes'; // C1: 앞뒤 공백·CR만 버린다. YES·y·예·전각은 취소
+  const ok = line !== null && line.trim() === 'yes'; // C1: 앞뒤 공백·CR만 버린다. YES·y·예·전각은 취소
+  note(deps, `${step} 확인 입력 ${line === null ? '(입력 끝)' : JSON.stringify(line.slice(0, 20))} → ${ok ? '진행' : '취소'}`);
+  if (!ok && line !== null && MEANS_YES.test(line.trim())) deps.write(`sumun: '${line.trim().slice(0, 10)}'가 아니라 영어 yes를 입력해야 진행합니다. 이번에는 취소했습니다 — 다시 실행하세요.\n`);
+  return ok;
 }
 async function guard(deps: CaDeps): Promise<boolean> {
   if (await deps.store.elevated()) {
@@ -156,8 +164,10 @@ async function install(deps: CaDeps): Promise<number> {
     return 1;
   }
   const sha1 = hash('sha1', der);
+  note(deps, `install 시작 지문 ${sha1}${created ? ' (새로 만든 CA)' : ''}`);
   const before = await deps.store.userRoot();
   if (before.some((c) => c.sha1 === sha1)) {
+    note(deps, `install 이미 등록됨 ${sha1}`);
     deps.write(`sumun: 이미 등록됨 — 현재 사용자의 신뢰할 수 있는 루트에 있습니다.\n${describe(der)}\n`);
     return 0;
   }
@@ -172,7 +182,7 @@ async function install(deps: CaDeps): Promise<number> {
       '',
     ].join('\n'),
   );
-  if (!(await ask(deps, '등록할까요?'))) {
+  if (!(await ask(deps, '등록할까요?', 'install'))) {
     deps.write('sumun: 취소했습니다. 아무것도 바꾸지 않았습니다.\n');
     return 1;
   }
@@ -180,17 +190,22 @@ async function install(deps: CaDeps): Promise<number> {
   let r: { code: number };
   try {
     r = await deps.store.add(der);
-  } catch {
+  } catch (e) {
+    note(deps, `install certutil -addstore 끝나지 않음(${String((e as { code?: string })?.code ?? '알 수 없음').slice(0, 40)}) — 결과 모름`);
     deps.write('sumun: 등록 명령이 끝나지 않아 결과를 모릅니다. npm run ca -- status로 확인하세요.\n');
     return 1;
   }
+  note(deps, `install certutil -addstore 종료 코드 ${r.code}`);
   const after = await deps.store.userRoot();
   const extra = after.filter((c) => c.sha1 !== sha1 && !before.some((b) => b.sha1 === c.sha1));
   if (extra.length) deps.write(`sumun: ⚠ 예상하지 못한 인증서가 함께 생겼습니다(npm run ca -- status로 확인하세요): ${extra.map((c) => c.sha1).join(', ')}\n`);
+  if (extra.length) note(deps, `install 예상하지 못한 새 인증서 ${extra.map((c) => c.sha1).join(', ')}`);
   if (after.some((c) => c.sha1 === sha1)) {
+    note(deps, `install 결과: 등록됨 ${sha1}`);
     deps.write(`sumun: 등록됨 — 지문 ${sha1}. 브라우저를 다시 시작한 뒤 npm start -- --decrypt로 쓰세요.\n`);
     return 0;
   }
+  note(deps, `install 결과: 등록되지 않음(저장소 재조회) ${sha1}`);
   deps.write(`sumun: 등록되지 않았습니다(취소했거나 실패했습니다, certutil 종료 코드 ${r.code}). 저장소를 다시 읽어 확인했습니다.\n`);
   return 1;
 }
@@ -215,6 +230,7 @@ async function uninstall(deps: CaDeps): Promise<number> {
   if (curSha1 && machine.includes(curSha1)) {
     deps.write('sumun: 현재 CA가 컴퓨터 저장소(LocalMachine)에도 있습니다 — 이 명령으로 지울 수 없습니다(관리자 권한으로 직접 지워야 합니다).\n');
   }
+  note(deps, `uninstall 시작 현재 CA ${curSha1 ?? '없음'}, 대상 ${targets.map((t) => `${t.kind} ${t.sha1}`).join(', ') || '없음'}${curSha1 && machine.includes(curSha1) ? ', 컴퓨터 Root에도 있음' : ''}`);
   if (!targets.length) {
     deps.write('sumun: 현재 사용자의 신뢰할 수 있는 루트에 지울 sumun 인증서가 없습니다.\n');
     return 0;
@@ -224,11 +240,12 @@ async function uninstall(deps: CaDeps): Promise<number> {
   for (const t of targets) {
     deps.write(`\nsumun: ${t.kind}\n${describe(t.der)}\n`);
     if (collides(t.sha1, user.filter((c) => c.sha1 !== t.sha1))) {
+      note(deps, `uninstall ${t.sha1} 지문 겹침 — 지우지 않음`);
       deps.write('sumun: 이 지문이 다른 인증서의 일련번호·이름·키 값과 겹쳐 certutil이 엉뚱한 인증서를 지울 수 있습니다. 지우지 않습니다.\n');
       failed = true;
       continue;
     }
-    if (!(await ask(deps, '이 인증서를 지울까요?'))) {
+    if (!(await ask(deps, '이 인증서를 지울까요?', `uninstall ${t.sha1}`))) {
       deps.write('sumun: 취소했습니다.\n');
       failed = true;
       continue;
@@ -237,15 +254,19 @@ async function uninstall(deps: CaDeps): Promise<number> {
     let code = -1;
     try {
       code = (await deps.store.remove(t.sha1.toLowerCase())).code; // B1: 40자리 소문자(certutil에 넘기는 모양 그대로)
-    } catch {
+    } catch (e) {
+      note(deps, `uninstall ${t.sha1} certutil -delstore 끝나지 않음(${String((e as { code?: string })?.code ?? '알 수 없음').slice(0, 40)}) — 결과 모름`);
       deps.write('sumun: 해제 명령이 끝나지 않아 결과를 모릅니다. npm run ca -- status로 확인하세요.\n');
       failed = true;
       continue;
     }
+    note(deps, `uninstall ${t.sha1} certutil -delstore 종료 코드 ${code}`);
     if ((await deps.store.userRoot()).some((c) => c.sha1 === t.sha1)) {
+      note(deps, `uninstall 결과: 해제되지 않음(저장소 재조회) ${t.sha1}`);
       deps.write(`sumun: 해제되지 않았습니다(certutil 종료 코드 ${code}).\n`);
       failed = true;
     } else {
+      note(deps, `uninstall 결과: 해제됨 ${t.sha1}`);
       deps.write(`sumun: 해제됨 — 지문 ${t.sha1}\n`);
       removed++;
     }
