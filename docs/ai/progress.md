@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[INFRA-13]** 진행 중(규칙 D — 브랜치·제목 ID 일치, `docs/ai/infra13-cases.md`). 그다음 UI 큰 단위. 아래는 지난 세션 종료 기록.
+- 작업(2026-11-08 새 세션): **[INFRA-13]** 완료(규칙 D — 브랜치·제목 ID 일치, `docs/ai/infra13-cases.md`). 다음 UI 큰 단위(아래 "다음 세션 첫 일" 2번). 아래는 지난 세션 종료 기록.
 - 지난 세션 종료(2026-11-08). 사용자: "다음 세션에서 할게". main = 이 기록 커밋. `npm test` 684/684, 실패 0, 대기 0(2eba73a 기준 — 그 뒤는 문서만).
   - 이번 세션에 끝낸 것: [STO-5](바이트 상한은 완료부터, 모르는 필터 조건 오류) → **STO ✅** → [INFRA-11](O47 커밋 메시지 hook: guard.mjs 규칙 C + commit-check.mjs, 표시 파일 `.claude/commit-rule.json`) → [INFRA-12](O48~O54 지침, check-method merge-record·merge-records).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI ⬜(남은 큰 기능)**, SEC은 SEC-3 ✅(SEC-1·2는 각 단계에서 함께 검증).
@@ -1087,12 +1087,15 @@
 - 실측 (명령 원문):
   - E163 일치(c663961 커밋 전, stub): `npm run test:red -- test/infra/commit-branch.test.mjs` → tests 16 / fail 16, AssertionError 16개, 오류 0. `npm test -- test/infra/commit-branch-regression.test.mjs` → 3 / 3.
   - E165 일치(5b78a70 뒤 작업 트리 hook, 브랜치 feat/INFRA-13): Bash `git commit -q --allow-empty -F "C:/Users/wooni/.claude/jobs/56352ded/tmp/infra13-e165-prx2b.txt"`(제목 `[PRX-2b] …`, 형식은 맞음) → "지금 브랜치 feat/INFRA-13의 커밋 제목은 [INFRA-13](또는 [RULE])로 시작해야 합니다(규칙 D, INFRA-13)…"로 막힘. Bash `git checkout feat/INFRA-13 && git commit -q --allow-empty -F ".../infra13-e165-own.txt"` → "커밋·병합과 같은 명령 안에서 브랜치·작업 위치·환경 변수를 바꿀 수 없습니다(규칙 D…)"로 막힘. PowerShell 같은 [PRX-2b] 파일 → 막힘. `git log --oneline -1` → f451a95 그대로(새 커밋 0개).
-  - E166 진행 중: 5b78a70(규칙 D를 켠 커밋 자체)·f451a95는 막힘·알림 없이 됐다.
+  - E166 일치: 5b78a70(규칙 D를 켠 커밋 자체)·f451a95·f4fc4dc·1f3efaf·이 문서 커밋이 `git commit -q -F "<절대 경로>"`로 막힘·알림 없이 됐다.
+  - E164 일치(1f3efaf): `npm test` → tests 703 / pass 703 / fail 0 / todo 0.
 - 멈춤(2026-11-08, 구현 뒤 첫 실행):
   - 실행: `npm test -- test/infra/commit-branch.test.mjs test/infra/commit-branch-regression.test.mjs test/infra/commit-msg.test.mjs test/infra/commit-msg-regression.test.mjs` → tests 46 / pass 45 / fail 1. 실패 = "실행 뒤: 명령 안에서 다른 브랜치로 가서 커밋하고 돌아와도(HEAD가 그대로여도) 알린다(사례 1, 24)" — AssertionError "알림이 있어야 함", actual null.
   - 원인 [확인됨: `node scripts/probe/infra13-reflog.mjs`, KEEP=1로 남긴 저장소의 `git show --stat`]: **테스트 구조 문제**. 도우미 `test/infra/_commit-fixture.mjs`의 `fx.commit`이 `git add -A`로 추적되지 않던 `.claude/commit-rule.json`·`.claude/state/commit-check.json`을 feat/PRX-2b 쪽 커밋에 넣는다 → 원래 브랜치로 돌아오는 checkout이 두 파일을 작업 트리에서 지운다 → 표시 파일이 없으니 commit-check.mjs는 꺼진 것으로 보고 아무것도 하지 않는다(이것은 맞는 동작). 실제 저장소에서는 `.claude/`가 추적되어 있어 생기지 않는다. reflog와 기록은 기대대로였다(rec.reflog 2 → 5줄, checkout·commit·checkout).
   - 이 테스트는 연속 실패 2회(INFRA-13 구현 커밋 8954220 시점 1회 + 이번 1회). 다시 돌리면 멈춤 장치가 켜진다(O53). 테스트 파일은 커밋되어 있어 고치려면 사용자의 "테스트 수정 허용"이 필요하다.
   - 제안(사용자 결정 대기): `test/infra/_branch-fixture.mjs`의 `makeBranchRepo`가 `.claude/state/`를 `.git/info/exclude`에 넣고 `.claude/commit-rule.json`을 시작 커밋에 넣는다(모든 브랜치에 표시 파일이 있게). 기대값은 바꾸지 않는다. 고친 뒤 고친 테스트가 구현 전 코드(c663961의 hook)에서 여전히 실패하는지 확인한다(O44).
+  - 재개: 사용자 채팅 "테스트 수정 허용"(2026-11-08) → hook "30분간 허용", 카운터 초기화.
+- 1f3efaf [INFRA-13] 테스트 수정 — 사용자 허용("테스트 수정 허용" 입력, 2026-11-08). 도우미 `_branch-fixture.mjs`의 저장소 준비만, 기대값 그대로. 구현 전 코드(c663961 worktree + stub)에서 16 / 16 실패 확인은 커밋 메시지.
   - 내 실수: 계획 단계에서 `npm test -- … --test-name-pattern`이 실행기(scripts/test.mjs)에서 적용되는 줄 알았다 — 적용되지 않아 8954220 시점에 파일 전체가 돌았다. 또 red를 두 번 돌리면 셈이 2가 되는 줄 알았는데 `test:red`는 셈에 들어가지 않았다 [확인됨: test-streak.json 값 1].
 
 ## 범위 밖 문제
