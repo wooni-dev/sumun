@@ -856,7 +856,31 @@
 - hook 기록(O25): ① 커밋 메시지를 printf로 셸에서 만들다 `>`와 테스트 경로가 겹쳐 막힘 ② `npm run test:red -- test/… > 파일`, `| tee 파일`도 막힘 — 모두 의도한 보수적 동작(O45). Write 도구로 메시지, 출력은 파이프로 grep만.
 - 계획과 달라진 점: 새 `scripts/probe/sto1-summary-size.mjs`(계획에 이름만 있던 E141 스크립트). 회귀 파일 없음(회귀 assertion만 있는 테스트 없음).
 - 범위 밖 관찰: 없음.
-- [STO-1] 완료: 355e00c..cfbdb99, 병합 6ca795d + 이 기록 커밋. `node scripts/check-method.mjs --id STO-1`(6ca795d) → 11개 모두 ✅. 다음: STO-2.
+- [STO-1] 완료: 355e00c..cfbdb99, 병합 6ca795d + 이 기록 커밋. `node scripts/check-method.mjs --id STO-1`(6ca795d) → 11개 모두 ✅. 다음: STO-2.\n
+
+### [STO-2] 계획
+- 근거: 사례 배정 `docs/ai/sto-cases.md` "STO-2"(A1, A2, A3, A5, A6), 결정 S-1(256MiB·10,000건, 오래된 것부터)·S-2(진행 중 1,000개, 바이트 상한에 포함)·S-5(상한으로 뺀 진행 중의 늦은 완료는 버림).
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 설계 [추측]:
+  - `createStore({ maxBytes = 256MiB, maxFlows = 10_000, maxPending = 1_000 })`. 옵션은 양의 정수만(아니면 TypeError).
+  - 비용: 완료 = 저장된 본문 `body.length`(요청 + 응답, `bodySize` 아님 — A2) + 헤더 쌍마다 `64 + 2 × (이름 길이 + 값 길이)`(A3, 에이전트 실측 3,000쌍 건당 약 222KB ≈ 쌍당 74바이트) + 항목 고정 비용. 진행 중 = url·target 문자열 + 고정 비용.
+  - "가장 오래된" = **저장소에 먼저 들어온 항목**(시작 알림이나 완료가 처음 온 순서). 진행 중이 완료로 바뀌어도 자리는 그대로. 프록시 id는 늘기만 해서 대개 id 순과 같다.
+  - 넣은 뒤 ① 진행 중 > maxPending이면 가장 오래된 진행 중부터 ② 완료 > maxFlows이면 가장 오래된 완료부터 ③ 전체 바이트 > maxBytes이면 상태와 상관없이 가장 오래된 것부터 뺀다. **방금 넣은 항목은 빼지 않는다**(한 건이 상한보다 커도 마지막 하나는 남음 — 기본값에서는 한 건이 최대 약 2MiB라 일어나지 않음).
+  - 뺀 id들은 그 넣기의 알림(`start`·`done`) 뒤에 `{ type: 'evicted', ids }` 하나로 알린다.
+  - 상한으로 뺀 진행 중 id는 기억해서 늦은 완료를 버린다(기억은 최근 10,000개까지).
+  - 뺀 항목은 Map에서 지우는 것 말고 다른 참조를 두지 않는다 → 메모리가 실제로 풀린다(A6).
+  - `stats()`에 `bytes`를 더한다.
+- 한 줄 보고: 목표 = 저장소가 메모리를 끝없이 쓰지 않게 바이트·건수·진행 중 상한 / 범위 =
+  - `src/store/store.ts`: `createStore()` 옵션 검사, `costOf()`(비용), `evict()`(오래된 것부터 빼기), `stats().bytes`
+  - 새 `test/sto/STO-2.test.ts`(새 동작), 회귀가 있으면 새 `test/sto/STO-2-regression.test.ts`
+  - 새 `scripts/probe/sto2-memory.mjs`(E144 실측)
+  - `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/STO-2.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 필터·프록시 연결·index.ts, 프록시 코드 변경, 본문 1MiB 제한 변경(PRX-2 결정)
+- 예상 [추측] (판정 기준 포함):
+  - E142: 새 동작 테스트는 지금 구현(STO-1, 상한 없음 — 새 모듈이 아니라 stub 없음)에서 모두 assertion 실패, 오류 0. 판정: 실패 수 = 새 동작 테스트 수, 오류 0.
+  - E143: 구현 뒤 `npm test` 실패 0, "큰 단위 대기(todo) STO: 2개". 판정: 둘 다.
+  - E144: 기본 상한 저장소에 서로 다른 본문(요청·응답 각 1MiB) 기록 400건(약 800MiB)을 넣고 gc 뒤 `process.memoryUsage().arrayBuffers` 증가가 **300MB 이하**, 남은 건수가 **120~128건**(256MiB ÷ 약 2MiB). 판정: 둘 다면 일치(`node --expose-gc scripts/probe/sto2-memory.mjs`).
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
