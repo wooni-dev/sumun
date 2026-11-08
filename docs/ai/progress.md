@@ -1435,6 +1435,13 @@
   - 889bc1e: `npm test -- test/ui/UI-2.test.ts test/ui/UI-6.test.ts` → 18 / 18(두 번). **E196 불일치**: `timeout 400 npm test`(두 번) → 796 중 795, 1 실패 `test/ui/UI-2.test.ts:172` "CONNECT(불투명 터널): … 대시보드에 연결하지 않는다"(가짜 대시보드 서버에 누가 연결함). UI-2 혼자 세 번 8/8. UI-6.test.ts만 뺀 전체 `node scripts/test.mjs <git ls-files 83개>` → 786 / 786.
 - **테스트 결함(멈춤 — 사용자 확인 대기)**: 원인 [추측] — UI-6 "터미널 안내(G-7, K28)" 테스트가 방금 비운 임시 포트 P로 `npm start`를 띄우고, 시작 때 포트 점유 검사가 P+1(기본 대시보드 포트)에 연결한다. Windows는 포트를 연속 번호로 주므로 병렬로 도는 UI-2 테스트의 가짜 대시보드(포트 0으로 받은 임시 포트)와 겹친다. 지난 세션 교훈("테스트 포트는 임시 포트 범위 49152~ 밖에서")을 이 테스트에 지키지 않았다. 고치려면 `test/ui/UI-6.test.ts`의 포트 선택을 임시 포트 범위 밖(P와 P+1이 모두 빈 곳)으로 바꿔야 한다 → "테스트 수정 허용" 필요.
 - hook이 막은 것: ① 메시지 파일을 같은 명령에서 sed로 고치고 변수 경로로 커밋 → 규칙 C(의도한 보수적 동작, Edit 도구 + 절대 경로로 나눔) ② node 스크립트의 `>=`와 테스트 경로를 한 명령에 → "테스트 수정"으로 봄(의도한 보수적 동작, O45와 같은 종류 — 명령을 나눔).
+- [UI-6 테스트 수정] 4ecb95d 사용자 "테스트 수정 허용"(2026-11-08): `test/ui/UI-6.test.ts` "터미널 안내" 테스트의 포트 고르기만(임시 포트 범위 밖 20000~39999에서 P·P+1 모두 빈 번호), assertion 그대로. 구현 전 코드(6eb68c0 임시 작업 폴더 + node_modules 연결)에서 `node --test test/ui/UI-6.test.ts` → 10 / fail 10, 터미널 안내는 옛 문구로 AssertionError(올바른 이유).
+  - **E196 일치(4ecb95d)**: `timeout 400 npm test` 두 번 → tests 796 / pass 796 / fail 0 / todo 0, 종료 코드 0(77초·75초).
+  - **E197 일치(cf0c527)**: `timeout 240 node scripts/probe/ui6-browser.mjs` → ① 필터 결과 1→8→15→22건(4초 동안 3번 늘어남, 기준 3번 이상), 끝난 뒤 1.5초에 28건 = 저장소 상태 200 28건 ② 주소 `/`(# 없음), history.state null, window.name '', history.length 2(빈 탭 → 대시보드 이동 한 번 — 이동 전 값은 따로 재지 않음 [추측: 1]) ③ 같은 포트로 다시 시작 뒤 같은 탭 새 주소 → "실시간", # 없음 ④ 새로고침 → "…새로고침하면 다시 필요합니다…" ⑤ `/favicon.svg` 200, 콘솔 오류 0 ⑥ `OK ⟨U+202E⟩gnp.exe 완료 (UTF-8로 풀어 보임 · 원래 바이트 4f 4b 20 e2 80 ae …)`, 실제 U+202E 0 ⑦ 목적지가 끊은 터널 "터널 실패"(s-bad), 브라우저가 끊은 터널 상세 "끝남 — 데이터가 오간 뒤 브라우저가 연결을 닫았습니다(…원래 기록: aborted (client))" ⑧ 403 "터미널에 나온 대시보드 주소를…" ⑨ `<-loopback>;127.0.0.1:D;localhost:D` → 대시보드 "실시간", /devapp 기록 1.
+  - E198 [탐색] 기록: 같은 스크립트, Browser.close 뒤 임시 프로필 검색 → 옛·새 토큰이 `Default\History`, `Default\Sessions\Session_*`, `Default\Sessions\Tabs_*`, `Default\Favicons`, `segmentation_platform\ukm_db`, 옛 토큰은 `Default\Top Sites`에도(K14·K24 한계 — 페이지 코드로 못 막음).
+- 계획과 달라진 점: E196이 처음엔 불일치(테스트 결함 → 사용자 허용 수정 4ecb95d, 위). 실측 커밋 cf0c527은 구현 뒤에 만든 스크립트(O55대로 문서 커밋보다 먼저 둠). 범위의 `docs/ai/map.md` 외에 바뀐 파일 없음.
+- UI 마무리 보고 결정 항목(O28 재배정): K14·K19·K24(프로필·403 화면에 토큰 주소), K8의 U+FE0F, 범위 밖 X1~X4. `docs/for-me/UI-6.md` "UI 마무리 보고에 올릴 것".
+- 미확인(세션 밖): Edge·Firefox·Windows 시스템 프록시 설정에서의 loopback 예외, 사람이 터미널 주소를 직접 열 때 — UI 보고서 결정 10 최종 확인 때.
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
