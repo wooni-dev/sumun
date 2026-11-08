@@ -3,16 +3,18 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[INFRA-13]** 완료(규칙 D — 브랜치·제목 ID 일치, `docs/ai/infra13-cases.md`). **[UI-T]** 진행 중(브랜치 feat/UI-T, 사례 `docs/ai/ui-cases.md`, 결정 D-1~D-16 모두 추천대로). 그다음 UI-1 → UI-5. 아래는 지난 세션 종료 기록.
-- 지난 세션 종료(2026-11-08). 사용자: "다음 세션에서 할게". main = 이 기록 커밋. `npm test` 684/684, 실패 0, 대기 0(2eba73a 기준 — 그 뒤는 문서만).
-  - 이번 세션에 끝낸 것: [STO-5](바이트 상한은 완료부터, 모르는 필터 조건 오류) → **STO ✅** → [INFRA-11](O47 커밋 메시지 hook: guard.mjs 규칙 C + commit-check.mjs, 표시 파일 `.claude/commit-rule.json`) → [INFRA-12](O48~O54 지침, check-method merge-record·merge-records).
-  - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI ⬜(남은 큰 기능)**, SEC은 SEC-3 ✅(SEC-1·2는 각 단계에서 함께 검증).
+- 세션 종료(2026-11-08 저녁). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 720개 중 718 통과, 실패 0, 대기 2(UI-T — `src/dashboard/public/app.js`가 생기면 풀림, bb45a5f 기준 — 그 뒤는 문서만).
+  - 이번 세션에 끝낸 것: [INFRA-13](규칙 D: 커밋 제목 ID = 브랜치, main 허용 목록, 표시 키 `"branch": true`) → [UI-T](대시보드 큰 단위 테스트 2개, 사례 `docs/ai/ui-cases.md` U1~U52, 결정 D-1~D-16 모두 추천대로) → [UI-1](대시보드 서버·요청 보호·토큰·`npm start` 연결, 결함 1건 처리).
+  - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T 대기, UI-1 ✅, UI-2~5 ⬜), SEC은 SEC-3 ✅.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - **다음 세션 첫 일(순서):**
-    0. INFRA-12 E162 뒤 절반을 INFRA-13 계획 커밋의 진행 기록에 적는다: 5b2791f 뒤 `node scripts/check-method.mjs --id INFRA-12` → merge-record ✅ "`[INFRA-12] 병합 뒤 기록` 커밋 있음", 11개 ✅·tree-updated ➖ [확인됨: 이 세션에서 실행] → 일치.
-    1. **[INFRA-13]** O54 기계 검사: `feat/<ID>` 브랜치에서 커밋 제목의 `[ID]`가 브랜치 ID와 같은지 guard.mjs가 본다(INFRA-11에서 `feat/INFRA-11`에 `[PRX-2b]` 메시지로 커밋된 사고). hook(차단 규칙)이므로 **검토 에이전트의 우회·오탐 사례를 먼저**(O10). 생각할 것: main의 `[AUDIT-n]`·`[SESSION]`·`[RULE]`·`[ID] 병합 뒤 기록`, feat 밖 브랜치, 병합 커밋.
-    2. **UI 큰 단위**: 시작할 때 UI-T 큰 단위 테스트(STO-T 행동을 다시 하고 대시보드 단계를 붙임 — O42), 그 전에 **대시보드 보호**(Host·Origin 검사, CSRF, CORS, 접속 토큰, DNS 리바인딩, 프록시를 거쳐 대시보드로 오는 요청)를 별도 검토 에이전트의 우회 사례로 먼저 받는다(O10). 구독자는 큐에 넣고 바로 반환(STO 결정 1), "복호화 꺼짐" 안내(결정 4), 목록 API 모양·필터 확장·진행 중 상세는 UI에서 정한다(결정 3·6·8). HTTPS 브라우저 실측은 UI 큰 단위 끝에서(결정 15, 사용자가 CA 등록) — O52대로 -T 경로마다 실제 클라이언트.
-  - 주의(이번 세션에서 생긴 규칙):
+    1. **[UI-2]** 프록시 쪽 대시보드 차단(배정 "UI-2": U15·U16·U17): `startProxy({ …, dashboardPort })` — 프록시를 거쳐 대시보드 포트(127.0.0.1·localhost·숫자 표기 등 루프백 주소)로 가는 평문 요청과 CONNECT(불투명 터널·복호화 모두)를 중계하지 않고 우회 안내로 거부, **기록도 남기지 않는다**(UI-T 보호 테스트가 "기록이 늘지 않음"을 본다). `src/index.ts`가 대시보드 포트를 넘긴다. 재현: `node scripts/probe/ui-review/e1.mjs`·`e2.mjs`.
+    2. [UI-3] 조회 API(`/api/flows`, 상세, `/body/request|response` octet-stream, `POST /api/clear`, 페이지 상한 500 — STO 결정 6) → [UI-4] SSE `/api/events`(연결 상한 16, 큐에 넣고 바로 반환 — STO 결정 1, 느린 구독자 1MiB) → [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4). UI-T가 고정한 모양은 `docs/ai/progress.md` [UI-T] 계획.
+    3. UI 큰 단위 끝: 전체 테스트(대기 0) → 감사(method-auditor) → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md`(O52: -T 경로마다 실제 클라이언트, HTTPS는 사용자가 CA 등록 뒤 브라우저 — STO 결정 15) → `check-method --id UI`.
+  - UI 보고서에 올릴 결정(추천으로 진행): 기본 대시보드 포트 = 프록시 + 1(차 있으면 다른 빈 포트), 주소는 시작 줄 끝, 페이지도 cross-site면 403, X1(프록시가 모든 루프백 서비스로 중계 — 리바인딩 노출), 목적 나무에 추가한 UI-T·UI-1~5.
+  - 이번 세션에서 배운 것: Windows는 `listen(0)` 포트를 연속 번호로 준다(테스트 포트 +1은 자주 차 있다). `npm test -- 파일 --test-name-pattern`은 실행기에서 적용되지 않는다. `test:red`는 연속 실패 셈에 들어가지 않는다. 진단 명령에 `>`와 `test/` 경로를 함께 쓰면 hook이 막는다 → 스크립트 파일로. 규칙 D는 읽기만 하는 `git branch --show-current`도 커밋과 한 명령이면 막는다(Q6대로 정한 보수적 동작, 오탐에 가까움 — 명령을 나누면 됨. 고칠지는 UI 보고서 때 여쭙는다).
+- 지난 세션 종료(2026-11-08 오후): STO-5 → STO ✅ → INFRA-11 → INFRA-12. 그때 정한 다음 일(INFRA-13, UI 큰 단위 시작)은 이번 세션에서 했다.
+  - 주의(쌓인 규칙):
     - 커밋은 `git commit -q -F "<절대 경로>"` 모양만(규칙 C hook이 막음). 메시지 파일 이름에 노드 ID, **Write 결과를 본 뒤에** 커밋(같은 응답에 함께 보내지 않음, O54). 작업 임시 폴더는 세션끼리 공유된다.
     - 병합 직후 check-method 결과는 **`[ID] 병합 뒤 기록: …`** 커밋으로(O50). 큰 단위 기록은 지금까지처럼 `[AUDIT-n]`.
     - 같은 새 테스트를 "다음 커밋 필요" 상태로 돌리는 것은 두 번까지(O53). 멈춤은 사용자의 **채팅 메시지**로만 풀린다(선택 창 답으로는 안 풀림).
