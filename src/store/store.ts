@@ -11,6 +11,7 @@
 // [STO-2] 상한: 바이트·완료 건수·진행 중 개수(STORE_LIMITS). 필터(STO-3), 프록시 연결(STO-4)은 다른 단위다.
 import crypto from 'node:crypto';
 import type { Flow, FlowStart, HeaderPairs, Target } from '../flow/flow.ts';
+import { parseFilter, matchesParsed, type Filter } from './filter.ts';
 
 export type Summary = {
   id: number;
@@ -35,7 +36,7 @@ export type Store = {
   readonly runId: string;
   addStart(start: FlowStart): void;
   addFlow(flow: Flow): void;
-  list(filter?: unknown): Summary[];
+  list(filter?: Filter): Summary[];
   get(id: number): Flow | undefined;
   subscribe(fn: (event: StoreEvent) => unknown): () => void;
   clear(): void;
@@ -297,8 +298,18 @@ export function createStore(options?: StoreOptions): Store {
       emit({ type: 'done', summary: summaryOf(d, runId) });
       enforce(flow.id);
     },
-    list() {
-      return [...entries.keys()].sort((a, b) => a - b).map((id) => summaryOf(entries.get(id)!, runId));
+    // [STO-3] 조건(filter.ts)은 먼저 검사한다(잘못된 타입이면 TypeError). id 오름차순으로 after보다 큰 것 중 맞는 것을 limit개까지
+    list(filter) {
+      const p = parseFilter(filter);
+      const out: Summary[] = [];
+      for (const id of [...entries.keys()].sort((a, b) => a - b)) {
+        if (p.after !== undefined && id <= p.after) continue;
+        const s = summaryOf(entries.get(id)!, runId);
+        if (!matchesParsed(p, s)) continue;
+        out.push(s);
+        if (p.limit !== undefined && out.length >= p.limit) break;
+      }
+      return out;
     },
     get(id) {
       if (!isId(id)) return undefined;
