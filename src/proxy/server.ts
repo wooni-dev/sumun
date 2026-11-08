@@ -138,9 +138,15 @@ const TIMEOUT = 'SUMUN_UPSTREAM_TIMEOUT';
 // [PRX-1c] A9: Windows는 다른 프로세스가 0.0.0.0:P를 쓰는 중에도 127.0.0.1:P 바인딩을 허용한다 [확인됨: scripts/probe/prx1c-a9-b6.mjs].
 // 그러면 브라우저 트래픽이 어느 프로그램으로 갈지 예측할 수 없다. 그래서 시작하기 전에 그 포트로 접속해 보고, 누가 응답하면 시작하지 않는다.
 // (0.0.0.0에 잠깐 바인딩해 보는 방법은 Windows 방화벽 "액세스 허용" 창을 띄울 수 있어서 쓰지 않는다 — 사례 A3)
+// [UI-2b] B-1: 자기 자신에게 연결된 것(TCP self-connect)은 응답이 아니다 — src/dashboard/server.ts portAnswers와 같은 규칙(ui2b-cases Z3).
+// 대시보드가 먼저 검사하며 임시 포트를 쓰면, 프록시 검사의 로컬 포트가 마침 P가 될 수 있다 [확인됨: 에이전트 e9 S1 5/5]. 값은 destroy 전에 읽는다(Z4)
 function portAnswers(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const s = net.connect(port, BIND_HOST, () => (s.destroy(), resolve(true)));
+    const s = net.connect(port, BIND_HOST, () => {
+      const self = s.localPort === s.remotePort && s.localAddress === s.remoteAddress;
+      s.destroy();
+      resolve(!self);
+    });
     s.setTimeout(500, () => (s.destroy(), resolve(false)));
     s.on('error', () => resolve(false));
   });
