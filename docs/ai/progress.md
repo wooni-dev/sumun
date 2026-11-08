@@ -9,6 +9,7 @@
   - 미확인(세션 밖, 남음): Edge·Firefox·Windows 시스템 프록시 설정 → SEC 큰 단위.
   - 지금 루트 CA는 **등록 안 됨**(2026-11-09 사용자 해제).
   - 다음: INFRA(O55~O61을 CLAUDE.md·check-method에) → UI-7(필터 0건 안내) → SEC 큰 단위.
+- 2026-11-09: **[UI-7] 진행 중** — 호스트 필터 0건 안내(결정 23). 계획은 아래 "[UI-7] 계획".
 - [INFRA-14] 완료: 57b4233([RULE])·1ad5b5f..fb00127, 병합 9b19774. `node scripts/check-method.mjs --id INFRA-14`(9b19774) → 10개 ✅, tree-updated ➖(INFRA), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: UI-7(필터 0건일 때 "도메인 전체를 넣으세요" 안내, UI 보고서 결정 23) → SEC 큰 단위.
 - 2026-11-09: **[INFRA-14] 구현·문서 끝** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) → check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). E199~E201 일치, E202 [탐색] UI-1 E172 하나. `npm test` 809/809. 자세히는 아래 "[INFRA-14] 계획"과 `docs/for-me/INFRA-14.md`.
 - 세션 종료(2026-11-08 자정 무렵). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 796개 모두 통과, 실패 0, 대기 0(4ecb95d 코드 기준, 두 번 — 그 뒤는 실측 스크립트·문서만).
@@ -1486,6 +1487,25 @@
   - E202 [탐색] 기록(313563a): `foreach ($id in 'PRX','TLS','STO','UI') { node scripts/check-method.mjs --id $id | Select-String 'sub-nodes' }` + `foreach ($n in 3..13) { node scripts/check-method.mjs --id "INFRA-$n" | Select-String 'predictions' }` → ⚠ 확인 필요는 **UI-1 E172 하나뿐**. INFRA-3~13은 모두 ✅. PRX sub-nodes ❌(PRX-1 test-commits-test-only), TLS sub-nodes ❌(TLS-1b·TLS-4c message-format, TLS-2 plan-first·test-first).
   - 추가 실측(계획 밖, O60): PRX·TLS의 ❌가 이번 변경 탓인지 보려고 main의 check-method를 저장소 안 임시 폴더에 꺼내 같은 명령을 돌림 — `git show main:scripts/check-method.mjs | Set-Content -Encoding utf8 tmp-cm\check-method.mjs; node tmp-cm\check-method.mjs --id PRX` (TLS도) → 같은 ❌ 문구. 원래 있던 위반(각 큰 단위 보고서에서 다룸)이다. 임시 폴더는 지웠다.
 - 계획과 달라진 점: 없음. 범위는 `scripts/check-method.mjs`, 테스트 두 파일, 문서 셋(`docs/method-feedback.md`, `docs/for-me/INFRA-14.md`, progress.md)과 앞선 `[RULE]` CLAUDE.md.
+
+### [UI-7] 계획
+- 근거: UI 보고서 결정 23 승인(2026-11-09, "모두 추천대로") — 호스트 필터는 그대로(같은 도메인·하위 도메인), 0건일 때 "도메인 전체를 넣으세요" 안내. 실제 CA 최종 확인에서 `z-emotion` → 0건, `z-emotion.com` → 311건(UI-report.md 실행 증거 5). 사용자 지시(2026-11-09) "이어서 진행해".
+- 미확인 항목(O13): 변화 없음 — Edge·Firefox·Windows 시스템 프록시 설정의 loopback 예외는 세션 밖 조건, SEC 큰 단위에서(결정 24).
+- O10·O59: 입력을 되비추지 않는 고정 문구만 더한다(새 입력 경로·권한·외부 출력 없음) → 차단·보안 규칙 변경이 아니어서 검토 에이전트 사례는 받지 않는다 [추측]. 큰 단위 사례 재사용도 없음.
+- 설계 [추측]:
+  - `src/dashboard/public/view.js`: 새 순수 함수 `emptyFilterHint({ host, count })` → 적용된 호스트 조건이 비어 있지 않고 결과가 0건이면 고정 문구, 아니면 ''. 문구에 입력값을 넣지 않는다.
+  - `src/dashboard/public/app.js` `render()`: 필터 결과가 0건이면 목록 아래(`ui.more`)에 그 문구. 호스트는 화면 칸이 아니라 **적용된 조건**(`state.query`의 host)에서 읽는다(칸만 바꾸고 적용 안 한 경우 헷갈리지 않게).
+- 한 줄 보고: 목표 = 호스트 필터가 0건일 때 "도메인 전체로 찾습니다(예: example.com)" 안내 / 범위 =
+  - `src/dashboard/public/view.js`: 새 `emptyFilterHint()`
+  - `src/dashboard/public/app.js`: `render()`(0건 안내)
+  - 새 `test/ui/UI-7.test.ts`(새 동작), 새 `test/ui/UI-7-regression.test.ts`(구현 전에도 통과해야 정상 — "필터 결과 n건" 문구 그대로, O9)
+  - 새 `scripts/probe/ui7-browser.mjs`(브라우저 실측 — 결과를 인용하는 문서 커밋보다 먼저 실측 커밋, O55)
+  - `docs/ai/purpose-tree.md`(UI-7), `docs/ai/map.md`(emptyFilterHint), `docs/for-me/UI-7.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 필터 일치 규칙(STO filter.ts) 변경, 부분 일치, 메서드·상태 필터 안내, 문구에 입력값 넣기, 서버 변경
+- 예상 [추측] (판정 기준 포함):
+  - E203: stub(view.js 끝에 `emptyFilterHint`가 늘 ''를 돌려줌, app.js 그대로)에서 `npm run test:red -- test/ui/UI-7.test.ts` → 새 동작 테스트 모두 assertion 실패, 오류 0. `npm test -- test/ui/UI-7-regression.test.ts` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E204: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0. 판정: 둘 다면 일치.
+  - E205(O31, 실제 브라우저 = headless Chrome, `scripts/probe/ui7-browser.mjs`, 저장소에 example.com·www.example.com 기록을 넣은 대시보드): 호스트 `example` 적용 → "필터 결과 0건"이고 목록 아래에 안내 문구가 보임 / `example.com` 적용 → 2건 이상, 안내 없음 / 필터 끄기 → 안내 없음. 판정: 셋 다면 일치.
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
