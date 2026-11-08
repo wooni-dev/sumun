@@ -96,9 +96,16 @@ function servePublic(res: http.ServerResponse, method: string, file: string, typ
 
 // [PRX-1c] A9와 같다: Windows는 다른 프로그램이 0.0.0.0:P를 쓰는 중에도 127.0.0.1:P 바인딩을 허용한다(U41).
 // localhost는 ::1부터 풀리므로 [::1]:P도 본다(U42). 누가 응답하면 시작하지 않는다
+// [UI-2b] B-1: 자기 자신에게 연결된 것(TCP self-connect — 나가는 소켓의 로컬 포트가 마침 P)은 응답이 아니다. Windows는 로컬 포트를 연속 번호로 줘서
+// 직전에 받은 임시 포트의 다음 번호를 검사하면 이렇게 된다 [확인됨: scripts/probe/ui3-selfconnect.mjs 10/10]. 실제 리스너가 있는 번호는 로컬 포트로 주지 않으므로
+// 이 비교는 남이 흉내 낼 수 없다(ui2b-cases F-b). 값은 destroy 전에 읽는다 — 뒤에 읽으면 로컬 쪽이 사라진다(Z4). 주소는 글자 상수가 아니라 서로 비교한다(Z5)
 function portAnswers(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const s = net.connect(port, host, () => (s.destroy(), resolve(true)));
+    const s = net.connect(port, host, () => {
+      const self = s.localPort === s.remotePort && s.localAddress === s.remoteAddress;
+      s.destroy();
+      resolve(!self);
+    });
     s.setTimeout(500, () => (s.destroy(), resolve(false)));
     s.on('error', () => resolve(false));
   });
