@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Store } from '../store/store.ts';
+import { handleApi, type ApiResult } from './api.ts';
 
 const BIND_HOST = '127.0.0.1';
 export const DASHBOARD_LIMITS = { bodyBytes: 16 * 1024, headerBytes: 16 * 1024 }; // D-13 [추측 수치]
@@ -44,11 +45,14 @@ const TEXT: Record<number, string> = {
   404: '없는 경로입니다.',
   405: '이 경로에서 쓸 수 없는 메서드입니다.',
   413: '요청 본문이 너무 큽니다.',
+  415: '이 요청은 Content-Type: application/json으로만 받습니다.',
   500: '대시보드에서 오류가 났습니다.',
 };
-function fail(res: http.ServerResponse, status: number, extra: Record<string, string> = {}) {
+// [UI-3] 같은 상태 코드의 다른 고정 문구(입력을 넣지 않는다 — U30)
+const TEXT_QUERY = '조회 조건이 올바르지 않습니다. host, method, status, after, limit을 한 번씩만 쓸 수 있고, status·after·limit은 숫자입니다.';
+function fail(res: http.ServerResponse, status: number, extra: Record<string, string> = {}, text?: string) {
   if (res.headersSent) return void res.destroy();
-  const body = TEXT[status] ?? TEXT[500];
+  const body = text ?? TEXT[status] ?? TEXT[500];
   res.writeHead(status, { ...extra, 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
 }
@@ -81,6 +85,20 @@ function authorized(req: http.IncomingMessage, token: Buffer): boolean {
   if (!m) return false;
   const given = Buffer.from(m[1]);
   return given.length === token.length && crypto.timingSafeEqual(given, token);
+}
+
+// [UI-3] api.ts의 결과를 응답으로. 본문은 원래 Content-Type으로 보내지 않는다 — octet-stream + attachment(+ UI-1의 nosniff·CSP).
+// 브라우저가 주소창에서 열어도 렌더링하지 않고 내려받는다(U20: 기록된 HTML·SVG가 대시보드 출처에서 실행되지 않게)
+function sendApi(res: http.ServerResponse, r: ApiResult) {
+  if (r.status === 204) return void (res.writeHead(204), res.end());
+  if (r.status === 200 && 'bytes' in r) {
+    res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="body.bin"', 'Content-Length': r.bytes.length });
+    return void res.end(r.bytes);
+  }
+  if (r.status === 200) return json(res, r.json);
+  if (r.status === 405) return fail(res, 405, { Allow: r.allow });
+  if (r.status === 400) return fail(res, 400, {}, TEXT_QUERY);
+  fail(res, r.status);
 }
 
 function servePublic(res: http.ServerResponse, method: string, file: string, type: string) {
@@ -151,7 +169,8 @@ export async function startDashboard({
         if (pathname.startsWith('/api/')) {
           if (!authorized(req, tokenBuf)) return fail(res, 401);
           if (pathname === '/api/ping') return method === 'GET' ? json(res, { runId: store.runId }) : fail(res, 405, { Allow: 'GET' });
-          return fail(res, 404);
+          // [UI-3] 조회 API(api.ts). 요청 본문은 쓰지 않는다(지우기는 Content-Type만 본다) — 본문 상한은 위의 'data'가 지킨다
+          return sendApi(res, handleApi(store, method, pathname, (req.url ?? '').slice(pathname.length + 1), req.headers));
         }
         const pub = PUBLIC[pathname];
         if (!pub) return fail(res, 404);
