@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [SEC-3] 테스트 수정 완료(병합 dcd720f). 다음: STO 큰 단위.
+- 작업: [STO-T] 큰 단위 테스트(브랜치 feat/STO-T). 그다음 STO-1 → STO-2 → STO-3 → STO-4.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -795,6 +795,32 @@
 - 계획과 달라진 점: 범위에 없던 B3 일련번호 수정(같은 `forgeCert`, 기대값 변경 없음)과 `scripts/probe/sec3-lookalike.mjs`(이중 인코딩)·새 `sec3-testfix-stub.mjs`·`sec3-testfix-old.mjs`, `docs/for-me/SEC-3.md` 결함 항목 갱신.
 
 - [SEC-3 테스트 수정] 완료: 8206c68..37e8b56, 병합 dcd720f + 이 기록 커밋. `node scripts/check-method.mjs --id SEC-3`(dcd720f) → test-unchanged **⚠ 허용됨**(c8b1b43, O40 의도대로), message-format ❌는 그대로 8fecd7e·a3d42f5(이번 커밋들은 위반 없음), 나머지 ✅. predictions-measured 근거에 E132~E135가 안 나온다 — 노드의 첫 계획 섹션만 보는 것으로 보인다 [추측: 코드 안 봄]. 결과에는 영향 없고, STO 보고서의 O47과 함께 올린다.
+
+### [STO-T] 계획
+- 근거: 사용자 지시(2026-11-08) "STO 진행해". CLAUDE.md 큰 단위 절(O33) — 시작할 때 큰 단위 테스트를 먼저. 형식은 INFRA-9(`test/sto/STO-T.test.ts`, todo 이유 `대기: src/store/attach.ts`, 동적 import, export 없음).
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 보안 사례(O10): 별도 컨텍스트 검토 에이전트 → `docs/ai/sto-cases.md`(A1~A10, B1~B9, C1~C11, D1~D11, E1~E6, F1~F3, 범위 밖 X1~X5). 사용자 결정 S-1~S-4(질문, 모두 추천), S-5~S-10(추천대로 진행 — STO 보고서 결정 항목). 에이전트 실험 스크립트는 `scripts/probe/sto-review/`로 옮긴다(O19, 실측 커밋).
+- 대기 파일 P = `src/store/attach.ts`: 마지막 작은 단위 STO-4가 만든다.
+- **다시 할 행동(O42)** — 같은 실행 안에서:
+  - PRX-T 1: 실제 curl로 평문 `POST http://127.0.0.1:<목적지>/submit?x=1`(Cookie, 본문)을 프록시로 → 200
+  - PRX-T 2: 실제 curl로 닫힌 포트 → 502
+  - TLS-T 1: CONNECT localhost → TLS(프록시 CA만 믿음) → `GET /hello?q=1` + Cookie → 200 `secure-hello`
+  - 그 뒤 새 단계: 저장소의 알림·목록·필터·상세, 그리고 별도 테스트에서 상한으로 오래된 기록이 빠지는지
+- 설계 [추측] — 큰 단위 테스트가 고정하는 모양. 바꿀 땐 STO 보고서 결정 항목으로 올린다:
+  - `src/store/store.ts`: `createStore({ maxBytes?, maxFlows?, maxPending? })` → `{ runId, list(filter?), get(id), subscribe(fn) → 해제 함수, clear() }`. 기본값 256MiB·10,000·1,000(S-1, S-2)
+  - `src/store/attach.ts`: `attachStore(store)` → `{ onFlowStart, onFlow }`(startProxy 옵션에 그대로 펼침). 같은 저장소에 두 번 부르면 오류(S-7)
+  - 알림: `{ type: 'start' | 'done', summary }`, `{ type: 'evicted', ids }`, `{ type: 'cleared' }`
+  - 요약: `{ id, runId, state: 'pending' | 'done', startedAt, method, url, target?, status?, statusFrom?: 'upstream' | 'proxy', error?, durationMs? , requestSize, responseSize }` — 본문·헤더 없음(S-4)
+  - `list(filter)`: `{ host?, method?, status? }`, id 오름차순. `get(id)`: 본문까지 복사한 Flow 사본(고쳐도 저장된 기록은 그대로)
+- 한 줄 보고: 목표 = 저장소 사용자 흐름을 처음부터 끝까지 확인하는 큰 단위 테스트를 먼저 둔다 / 범위 =
+  - 새 `test/sto/STO-T.test.ts`: (1) 위 세 행동 → 알림(시작이 완료보다 먼저, 요약에 본문 없음), 목록(완료 3건 id 순), 필터(method post → curl POST, host localhost → HTTPS 요청, status 502 → 닫힌 포트, 출처 proxy), 상세(본문·쿠키, 고쳐도 다시 조회하면 그대로) (2) 작은 상한(`maxBytes` 1MiB)에서 400KB 본문 POST 세 번 → 가장 오래된 것이 `evicted` 알림과 함께 빠지고 목록에 둘. 도우미는 파일 안에 두고 export하지 않는다
+  - 새 `scripts/probe/sto-review/e1-buffers.mjs`·`e2-proxy.mjs`·`e3-mitm.mjs`·`e4-memory.mjs`·`e5-reject.mjs`(에이전트 실험, 저장소 절대 경로를 상대 경로로만 바꿈)
+  - 새 `docs/ai/sto-cases.md`, `docs/ai/purpose-tree.md`(STO 🔨, STO-T·STO-1~4 추가), `docs/for-me/STO-T.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 구현(STO-1~4), 프록시·TLS 코드 변경(X1~X5는 범위 밖), 대시보드
+- 예상 [추측] (판정 기준 포함):
+  - E136: `npm run test:red -- test/sto/STO-T.test.ts` → 2개 모두 실패, 유형은 오류(동적 import한 `src/store/store.ts`가 없음, ERR_MODULE_NOT_FOUND). 판정: 실패 2, 각각 ERR_MODULE_NOT_FOUND면 일치.
+  - E137: 테스트 커밋 뒤 `npm test`는 종료 코드 0, 출력에 "큰 단위 대기(todo) STO: 2개, 그중 실패 2개". 판정: 둘 다면 일치.
+  - E138: 옮긴 실험 스크립트가 저장소 안에서도 에이전트 결과와 같은 줄을 낸다(E8b "끝이 없는 시작 1:CONNECT", E14 "s2 s3 f1 f2 f3", e5-reject 종료 코드 1). 판정: 셋 다 같으면 일치.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
@@ -812,6 +838,8 @@
 - ⚠ [TLS-4 발견, 범위 밖 — TLS-1 결함] 불투명 터널(openTunnel)은 검사한 주소 중 **첫 주소에만** 연결한다. 이 PC에서 `localhost`는 `::1`, `127.0.0.1` 순서로 풀리므로, 127.0.0.1에만 열린 서버로 `CONNECT localhost:P`를 하면 502가 난다 [추측: TLS-1 테스트는 lookup을 주입해 드러나지 않았다. 복호화 쪽은 TLS-4에서 주소들을 차례로 시도하게 고침]. 제안: TLS-4b에서 터널도 같은 방식으로.
 
 - ⚠ [TLS-4c 검토 발견, 범위 밖 — R6] CONNECT 단계의 이름 해석(`checkConnect`)과 인증서 발급(`certs.get`)에는 시간 제한이 없다. 해석이 멈추면 200을 보내기 전의 소켓이 무기한 남는다 [추측: 코드 근거, 실행 안 함]. 제안: 다음 TLS 관련 작은 단위나 SEC 단계에서 시간 제한을 검토.
+
+- ⚠ [STO 검토에서 발견, 범위 밖 — sto-cases.md X1~X5] 복호화 CONNECT는 시작 알림만 있고 같은 id의 끝 기록이 없다(X1, 터널 안 기록에 CONNECT를 가리키는 칸도 없음). onFlowStart는 onFlow 없이도 나간다(X2). CONNECT 기록의 target.host는 끝 점·IPv6 표기가 평문과 다르다(X3). 시작 구독자 throw 때 시작 알림이 사라진다(X4, 설계대로). index.ts에 unhandledRejection 처리가 없어 reject 하나로 종료된다(X5) [확인됨: scripts/probe/sto-review/]. 저장소는 X1~X4를 전제로 만든다(S-2, S-6). X5는 STO-4에서 index.ts를 바꿀 때 다시 본다.
 
 ## 시도하다 막힌 것
 (없음)
