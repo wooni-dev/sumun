@@ -201,7 +201,8 @@
 | O18~O21 | ✅ 승인(2026-11-07, AUDIT-3 보고서 1) | INFRA-7: CLAUDE.md(O18~O20). O21은 INFRA-6에서 이미 반영 |
 | O22~O38 | ✅ 승인(2026-11-07, PRX 중간 확인 보고서 `docs/for-me/PRX-report.md` "승인"). O28은 "재배정은 보고서 항목으로"까지 넓혀 승인 | INFRA-8: CLAUDE.md(O23, O25, O26, O28~O31, O33~O38), check-method(O22, O24, O27, O32, O34, O35), method-auditor(O32, O33). O30의 보충 테스트는 다음 PRX 작은 단위 |
 | O39~O46 | ✅ 승인(2026-11-08, TLS 중간 확인 보고서 `docs/for-me/TLS-report.md` "8건 모두 승인") | INFRA-10: check-method(O39 파일 기준, O40 ⚠ 허용됨, O46 탐색·판정 요구 — VERDICT_RULE_SINCE 뒤 작업만), CLAUDE.md(O40·O44 허용 수정 절차, O41 [RULE], O42 이어 붙이기, O43 타이밍, O45 커밋 메시지, O46 [탐색]), method-auditor(O40·O44·O46 판정) |
-| O47~O52 | ✅ 승인(2026-11-08, STO 중간 확인 보고서 `docs/for-me/STO-report.md` 결정 13 "모두 추천대로") | INFRA-11: O47(guard.mjs 규칙 C + commit-check.mjs + 표시 파일 `.claude/commit-rule.json`, CLAUDE.md 커밋 메시지 절). 반영 대기 — INFRA-12: O48 커밋 전 테스트 구조 수정 기록(CLAUDE.md O36 보강), O49 "실행함, n개 실패(다음 커밋 필요)" 형식, O50 `[ID] 병합 뒤 기록` 자리 고정(+ check-method 검사), O51 판정 기준에 측정 시점, O52 큰 단위 마무리 때 -T 흐름 각 경로를 실제 클라이언트로 |
+| O47~O52 | ✅ 승인(2026-11-08, STO 중간 확인 보고서 `docs/for-me/STO-report.md` 결정 13 "모두 추천대로") | INFRA-11: O47(guard.mjs 규칙 C + commit-check.mjs + 표시 파일 `.claude/commit-rule.json`, CLAUDE.md 커밋 메시지 절). INFRA-12: CLAUDE.md(O48 테스트 구조 수정 기록, O49 "실행함, 예상대로 n개 실패" 형식, O50 `[ID] 병합 뒤 기록` 자리, O51 판정 기준에 측정 시점, O52 보고서 실행 증거에 -T 경로마다 실제 클라이언트), check-method(O50 merge-record·merge-records, MERGE_RECORD_SINCE), method-auditor(O48~O50, O52) |
+| O53·O54 | ✅ 사용자 결정(2026-11-08, INFRA-12 계획 때 선택 창): O53 = 지침으로(멈춤 장치는 그대로), O54 = 지침 + 기계 검사 | INFRA-12: CLAUDE.md(O53 같은 새 테스트를 다음 커밋 필요 상태로 두 번까지·멈춤은 채팅 답, O54 메시지 파일 이름에 노드 ID·Write 확인 뒤 커밋). 반영 대기 — INFRA-13: O54 기계 검사(feat/<ID> 브랜치의 커밋 제목 ID = 브랜치 ID, hook이라 검토 사례 먼저 O10) |
 | 감사 주기 | ✅ 승인(2026-11-07, AUDIT-3 보고서 3): PRX-1은 PR마다 감사, 그 뒤로는 큰 단위마다 감사 | INFRA-7: CLAUDE.md |
 - ai-research/decisions.md 반영은 사용자가 직접 한다.
 
@@ -292,7 +293,7 @@ PRX 큰 단위 감사가 보류 항목에 더한 근거: O26 재현 안 됨, O27
 | O51 | E144 판정 기준에 측정 시점이 빠졌다(끝 상태로 판정, 중간 +313MiB) | O38 | 판정 기준 예시에 "언제 잰 값인지"를 넣는다 |
 | O52 | 큰 단위 흐름에 HTTPS 복호화가 있는데 실제 클라이언트 실측은 평문 curl만 | O31, 7~9행 | 큰 단위 마무리 때 -T 흐름의 각 경로를 실제 클라이언트로 한 번씩 실측하는 것을 보고서 "실행 증거" 요건에 넣을지 결정 |
 
-### INFRA-11에서 새로 나온 관찰 (승인 전 — INFRA-12 계획 때 사용자에게 여쭙는다)
+### INFRA-11에서 새로 나온 관찰 (결정 2026-11-08 — 승인 상태 표 참고)
 | O번호 | 관찰 | 관련 | 제안 |
 |---|---|---|---|
 | O53 | 파일 하나씩 커밋하면서 같은 새 테스트 파일을 커밋마다 돌리자, "다음 커밋이 필요한 예상된 실패" 6개가 3회 연속 실패로 세어져 멈춤 장치가 켜졌다(INFRA-11, 의도한 보수적 동작). 선택 창의 답으로는 풀리지 않고 채팅 메시지가 필요했다 | O49, INFRA-9 멈춤 | 중간 커밋 검증은 그 커밋이 다루는 테스트만 돌린다(이름 패턴)고 지침에 적거나, 멈춤 장치가 "다음 커밋 필요"를 구별하게 할지 결정 |

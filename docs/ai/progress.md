@@ -1047,6 +1047,13 @@
   - E160: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0. 판정: 둘 다.
   - E161: 구현 뒤 `node scripts/check-method.mjs --id STO-5` → merge-record ➖ "규칙 도입 전", 나머지 11개 ✅. `--id STO` → merge-records ✅. 판정: 셋 다 이와 같으면 일치.
   - E162: INFRA-12 병합 직후 `--id INFRA-12` → merge-record ➖ "기록 대기", `[INFRA-12] 병합 뒤 기록` 커밋 뒤 → ✅. 판정: 둘 다 이와 같으면 일치.
+- 실측 (명령 원문):
+  - E159 일치(ba911c9 커밋 전, 코드 c7c0522): `npm run test:red -- test/infra/check-method-infra12.test.mjs` → tests 7 / fail 7, 모두 AssertionError, 오류 0. `npm test -- test/infra/check-method-infra12-regression.test.mjs` → 3 / 3.
+  - E160 일치(2eba73a): `npm test` → tests 684 / pass 684 / fail 0 / todo 0.
+  - E161 일치(2eba73a): `node scripts/check-method.mjs --id STO-5` → 기존 11개 ✅, merge-record ➖ "규칙 도입 전 작업이라 건너뜀(도입 커밋 c7c0522)". `--id STO` → merge-records ✅ "병합 뒤 기록이 빠진 하위 노드 없음".
+  - E162: 병합 뒤 기록 커밋에서 적는다.
+- 계획과 달라진 점: 없음. 구현 첫 실행에서 문구 차이로 2개 실패 → 구현 문구를 고침(b89a49d 메시지). CLAUDE.md 편집에서 O50 항목을 원래 줄 중간에 끼운 것을 커밋 전에 diff로 찾아 고침(2eba73a 메시지).
+- 범위 밖 관찰: 없음.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
