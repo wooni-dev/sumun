@@ -4,12 +4,16 @@
 //  1. 커밋된 테스트 파일 수정 금지  — 사용자가 "테스트 수정 허용"이라고 입력하면 30분간 해제
 //  2. hook 상태 폴더(.claude/state/) 쓰기 금지 — 항상
 //  3. 같은 테스트가 3회 연속 실패하면 멈춤 — 진행 기록 작성과 읽기 명령만 허용, 사용자가 답하면 초기화
+//  C. [INFRA-11] 커밋 메시지 형식(O47) — 표시 파일 .claude/commit-rule.json이 있을 때만. 커밋은 `git commit -F <절대 경로>` 모양만,
+//     그 파일은 scripts/commit-msg.mjs로 검사. 실행 뒤 검사(commit-check.mjs)의 기준으로 지금 HEAD·시각을 기록한다
+//     (사례·한계: docs/ai/infra11-cases.md)
 //
 // 판정: 막을 때만 JSON을 출력한다. 아무것도 출력하지 않으면 허용이다.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { stopped, STOP_AFTER } from '../../scripts/streak.mjs';
+import { messageProblems } from '../../scripts/commit-msg.mjs';
 
 const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const stateDir = path.join(projectDir, '.claude', 'state');
@@ -25,6 +29,16 @@ const PROGRESS = 'docs/ai/progress.md';
 const CONSUMER_RE =
   /\b(bash|sh|zsh|dash|ksh|fish|node|deno|bun|tsx|python[\d.]*|py|perl|ruby|php|pwsh|powershell|cmd|xargs|read|source|eval|exec|iex|Invoke-Expression)\b|(^|[;&|]\s*)\.\s/i;
 const EXPANDS_RE = /\$\(|`/;
+// [INFRA-11] 규칙 C (commitProblem에서 사용 — 아래 함수보다 먼저 초기화되어야 한다)
+const COMMIT_RULE_FILE = path.join(projectDir, '.claude', 'commit-rule.json');
+const GIT_RE = /^(?:.*[\\/])?git(?:\.exe)?$/i;
+const SKIP_WORD_RE = /^(do|then|else|elif|if|while|until|env|command|exec|time|nohup|sudo)$/;
+const ENV_ASSIGN_RE = /^[A-Za-z_]\w*=/;
+const UNSAFE_PATH_RE = /[$`%~*?(){}<>]/;
+const COMMIT_OK_FLAGS = new Set(['-q', '--quiet', '--allow-empty']);
+const MSG_COMMIT_SHAPE =
+  '커밋은 `git commit -F "<절대 경로>"` 모양만 허용합니다(-q, --allow-empty는 함께 써도 됨. 규칙 C, INFRA-11). 메시지는 Write 도구로 저장소 밖 임시 파일에 쓰세요. ' +
+  '-m, --amend, -C, --no-edit, --fixup, 표준입력(-F -), 변수·상대 경로, git 앞의 환경 변수·-c 설정, 같은 명령 안에서 메시지 파일 쓰기는 막습니다.';
 
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const { tool_name: tool, tool_input: ti = {} } = input;
@@ -79,6 +93,140 @@ if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) {
   if (writes && STATE_PATH_RE.test(cleaned)) deny(MSG_STATE);
   if (streakHit.length && TEST_RUN_RE.test(cmd)) deny(msgStreak());
   if (writes && TEST_PATH_RE.test(cleaned) && !unlocked()) deny(MSG_TEST);
+  // [INFRA-11] 규칙 C: 기록은 막는 판정보다 먼저(막히면 명령이 실행되지 않으니 기록이 남아도 해가 없다)
+  if (fs.existsSync(COMMIT_RULE_FILE)) {
+    recordHead();
+    const why = commitProblem(cmd, tool);
+    if (why) deny(why);
+  }
+}
+
+// [INFRA-11] 실행 뒤 검사(commit-check.mjs)의 기준: 이 명령 직전의 HEAD와 시각
+function recordHead() {
+  try {
+    const head = execFileSync('git', ['-C', projectDir, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'commit-check.json'), JSON.stringify({ head, at: Date.now() }));
+  } catch {}
+}
+
+// [INFRA-11] 명령을 따옴표 밖의 ; & | 줄바꿈에서 조각으로 나누고, 조각을 낱말로 나눈다.
+//   낱말 = { v: 따옴표·이스케이프를 푼 값, raw: 원문 }. Bash는 백슬래시 이스케이프, PowerShell은 아니다(경로 구분자)
+function segmentsOf(s, tool) {
+  const segs = [];
+  let words = [];
+  let v = '';
+  let raw = '';
+  let q = '';
+  let has = false;
+  const endWord = () => {
+    if (has) words.push({ v, raw });
+    v = raw = '';
+    has = false;
+  };
+  const endSeg = () => {
+    endWord();
+    if (words.length) segs.push(words);
+    words = [];
+  };
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) {
+      raw += c;
+      if (c === q) q = '';
+      else if (q === '"' && c === '\\' && tool === 'Bash' && i + 1 < s.length) v += s[++i], (raw += s[i]);
+      else v += c;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      q = c;
+      raw += c;
+      has = true;
+    } else if (c === '\\' && tool === 'Bash' && i + 1 < s.length) {
+      raw += c + s[i + 1];
+      v += s[++i];
+      has = true;
+    } else if (/[;&|\n]/.test(c)) endSeg();
+    else if (/\s/.test(c)) endWord();
+    else {
+      v += c;
+      raw += c;
+      has = true;
+    }
+  }
+  endSeg();
+  return segs;
+}
+
+// [INFRA-11] 규칙 C 판정. 막을 이유(문구) 또는 null
+function commitProblem(cmd, tool) {
+  // heredoc·here-string 본문 같은 데이터는 stripData로 지운다(메시지 내용을 명령에서 읽지 않으므로 지워도 판정은 그대로다 — -m·-F -는 내용과 상관없이 막는다)
+  const text = stripData(cmd, tool).replace(/\d*>&\d/g, ' ');
+  for (const words of segmentsOf(text, tool)) {
+    let i = 0;
+    let envPrefix = false;
+    while (i < words.length && (SKIP_WORD_RE.test(words[i].v) || /^[({!]/.test(words[i].v) || ENV_ASSIGN_RE.test(words[i].v))) {
+      if (ENV_ASSIGN_RE.test(words[i].v)) envPrefix = true;
+      i++;
+    }
+    if (i >= words.length || !GIT_RE.test(words[i].v)) continue;
+    i++;
+    // git 전역 옵션: --no-pager·-P와 절대 경로 -C만 허용
+    let badGlobal = false;
+    while (i < words.length && words[i].v.startsWith('-')) {
+      const o = words[i].v;
+      if (o === '-C') {
+        const p = words[i + 1];
+        if (!p || UNSAFE_PATH_RE.test(p.raw) || !absPath(p.v)) badGlobal = true;
+        i += 2;
+      } else {
+        if (o !== '--no-pager' && o !== '-P') badGlobal = true;
+        i += o === '-c' ? 2 : 1;
+      }
+    }
+    if (words[i]?.v !== 'commit') continue;
+    i++;
+    if (envPrefix || badGlobal) return MSG_COMMIT_SHAPE;
+    let file;
+    let count = 0;
+    for (; i < words.length; i++) {
+      const w = words[i];
+      if (w.v === '-h' || w.v === '--help') return null;
+      if (COMMIT_OK_FLAGS.has(w.v) || /^[)}]+$/.test(w.v)) continue;
+      if (/^\d*>>?$/.test(w.v)) {
+        i++; // 출력 리다이렉트와 그 대상
+        continue;
+      }
+      if (w.v === '-F' || w.v === '--file') {
+        file = words[++i];
+        count++;
+      } else if (w.v.startsWith('--file=')) {
+        file = { v: w.v.slice(7), raw: w.raw.slice(w.raw.indexOf('=') + 1) };
+        count++;
+      } else return MSG_COMMIT_SHAPE;
+    }
+    if (count !== 1 || !file || file.v === '-' || UNSAFE_PATH_RE.test(file.raw)) return MSG_COMMIT_SHAPE;
+    const abs = absPath(file.v);
+    if (!abs) return MSG_COMMIT_SHAPE;
+    const base = abs.split(/[\\/]/).pop();
+    if (cmd.split(base).length - 1 > 1) return `${MSG_COMMIT_SHAPE} (메시지 파일 이름 ${base}이 명령에 두 번 이상 나옵니다)`;
+    let buf;
+    try {
+      buf = fs.readFileSync(abs);
+    } catch {
+      return `메시지 파일을 읽을 수 없습니다(규칙 C): ${abs}`;
+    }
+    const problems = messageProblems(buf);
+    if (problems.length) return `커밋 메시지 형식이 틀렸습니다(규칙 C, CLAUDE.md "커밋 메시지 형식"): ${problems.join(' / ')}`;
+  }
+  return null;
+}
+
+// 드라이브 문자로 시작하는 절대 경로(C:/…, C:\…), Git Bash 표기 /c/…. 그 밖(상대 경로, /tmp)은 undefined
+function absPath(p) {
+  if (/^[A-Za-z]:[\\/]/.test(p)) return p;
+  const m = p.match(/^\/([A-Za-z])\/(.*)$/);
+  return m ? `${m[1].toUpperCase()}:/${m[2]}` : undefined;
 }
 
 // [INFRA-3 → INFRA-5] 명령 안의 "데이터"를 지운다. 데이터 안의 '>'나 경로는 파일 쓰기가 아니다.

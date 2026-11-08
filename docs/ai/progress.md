@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). 다음은 아래 "다음 세션 첫 일"의 3번(INFRA: O47~O52 반영), 그다음 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
+- 작업(2026-11-08 새 세션): **[STO-5]** 완료 → **STO ✅**(목적 나무). **[INFRA-11]**(O47 커밋 메시지 hook) 완료, 다음 [INFRA-12](O48~O52 + 새 관찰 O53·O54 여쭙기), 그다음 아래 4번(UI 큰 단위). 1·2번은 끝남. 아래는 지난 세션 종료 기록.
 - 지난 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 8b494f4. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
   - 이번 세션에 끝낸 것: 사용자 확인 3건(SEC-3 테스트 수정 허용, O47 보류, 예전 프로세스 종료) → SEC-3 테스트 수정(c8b1b43) → STO-T → STO-1 → STO-2 → STO-3 → STO-4 → STO 감사(AUDIT-7)·검토·보고서(AUDIT-8) → **STO 보고서 승인**(결정 1~15 모두 추천대로, 이 기록 커밋).
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
@@ -983,6 +983,48 @@
 - 계획과 달라진 점: 없음. 테스트 기대값은 처음 쓴 그대로. 사용자 문서 `docs/for-me/STO-2.md`도 고침(계획 범위에 적은 대로 — 빼는 순서 ③과 실제 메모리 약 330MB).
 - 범위 밖 관찰: 없음.
 - [STO-5] 완료: eaa95c5..9b28a8a, 병합 4b2d4ec. `node scripts/check-method.mjs --id STO-5`(4b2d4ec) → 11개 모두 ✅. `node scripts/check-method.mjs --id STO`(4b2d4ec) → sub-nodes ✅(하위 6개), big-unit-test·report·review·todo ✅. 이 줄은 [AUDIT-10]으로 커밋(O50 반영 전이라 지금까지의 큰 단위 기록 방식).
+
+### [INFRA-11] 계획
+- 근거: STO 보고서 결정 13(O47~O52 승인), 결정 14(STO ✅ 뒤 INFRA). 사용자 지시(2026-11-08) "이어서 해".
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 사용자 결정(2026-11-08, 이 세션 — `docs/ai/infra11-cases.md` D1~D6): O47 장치 = Claude hook(실행 전 guard.mjs + 실행 뒤 새 hook), O49 = "실행함, n개 실패(다음 커밋 필요)" 허용(INFRA-12에서 반영), 단위 나눔(O47만 INFRA-11, O48~O52는 INFRA-12), 기존 hook 테스트 6개와의 충돌은 **켜는 표시 파일** `.claude/commit-rule.json`으로(테스트 수정 없음).
+- O10: hook(차단 규칙)을 바꾸므로 검토 에이전트(새 컨텍스트, 해결안 알려 주지 않음)에게 우회 사례를 먼저 받았다 → 우회 78개·오탐 24개·결정 질문 11개. 배정과 기본 답은 `docs/ai/infra11-cases.md`.
+- 설계 [추측]:
+  - 새 `scripts/commit-msg.mjs`: `messageProblems(textOrBuffer)` → 문제 문구 배열(빈 배열 = 통과). 실행 전·실행 뒤 hook이 같은 함수를 쓴다. check-method의 message-format 규칙은 바꾸지 않는다(옛 커밋 판정이 바뀌지 않게).
+  - `.claude/hooks/guard.mjs`: Bash·PowerShell 명령이면 ① 표시 파일이 있을 때 `.claude/state/commit-check.json`에 지금 HEAD·시각을 기록(실행 뒤 검사의 기준) ② 명령을 `;` `&&` `||` `|` `&` 줄바꿈으로 나눈 조각마다 `git … commit`이면 모양 검사(D2) → `-F` 파일을 읽어 `messageProblems`. 원문 `cmd`로 본다(stripData는 메시지를 지우므로 — 에이전트 지적).
+  - 새 `.claude/hooks/commit-check.mjs`(PostToolUse, Bash|PowerShell): 기록 뒤 새로 생긴 병합 아닌 커밋(`git rev-list --no-merges <기록 HEAD>..HEAD`, 커밋 시각 ≥ 기록 시각)의 `%B`를 검사, 틀리면 `decision: block`과 이유(해시, 문제, "멈추고 사용자에게 보고").
+  - `.claude/settings.json`: PostToolUse에 commit-check.mjs 추가. 새 `.claude/commit-rule.json`(표시 파일). `CLAUDE.md` 커밋 메시지 절에 "hook이 `git commit -F <절대 경로>` 모양과 형식을 검사한다" 한 줄. settings·CLAUDE.md는 구현의 일부라 [RULE] 커밋이 아니라 구현 커밋에 둔다(INFRA-10과 같음 — hook 파일보다 먼저 등록하면 없는 파일을 부른다).
+- 한 줄 보고: 목표 = 커밋 메시지 형식을 커밋 순간에 기계로 검사(O47) / 범위 =
+  - 새 `scripts/commit-msg.mjs`: `messageProblems()`
+  - `.claude/hooks/guard.mjs`: 규칙 C(커밋 모양·메시지 파일 검사, 실행 전 HEAD 기록)
+  - 새 `.claude/hooks/commit-check.mjs`: 실행 뒤 새 커밋 검사
+  - `.claude/settings.json`(PostToolUse 항목), 새 `.claude/commit-rule.json`, `CLAUDE.md`(커밋 메시지 절 한 줄)
+  - 새 `test/infra/_commit-fixture.mjs`(도우미), 새 `test/infra/commit-msg.test.mjs`(새 동작), 새 `test/infra/commit-msg-regression.test.mjs`(구현 전에도 통과해야 정상 — 맞는 메시지·허용 명령, O9)
+  - `docs/ai/infra11-cases.md`, `docs/method-feedback.md`(승인 표의 반영 위치), `docs/for-me/INFRA-11.md`, `docs/ai/map.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = O48~O52(INFRA-12), check-method 규칙 변경, 과거 커밋 재작성, `.git/` 쓰기 검사(L3), git 설정 변경
+- 예상 [추측] (판정 기준 포함):
+  - E155: stub(`scripts/commit-msg.mjs`는 빈 배열, `commit-check.mjs`는 아무것도 출력하지 않음, guard는 그대로, 표시 파일 없음)에서 `npm run test:red -- test/infra/commit-msg.test.mjs` → 새 동작 테스트가 모두 assertion 실패, 오류 0. `npm test -- test/infra/commit-msg-regression.test.mjs` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0.
+  - E156: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0. 기존 hook 테스트(hooks-data-gt, hooks-normal-regression 포함)도 그대로 통과. 판정: 둘 다.
+  - E157 실측(O31, 실제 클라이언트 = 이 세션의 실제 도구 호출, 구현 커밋 뒤 작업 트리의 hook): Bash `git commit --allow-empty --dry-run -m "x"` → hook이 막는다(막지 못해도 dry-run이라 커밋이 생기지 않음). PowerShell `git commit --dry-run -F $env:TEMP\x.txt` → 막는다. 판정: 둘 다 막히면 일치.
+  - E158 실측: 이 PR의 구현 커밋 뒤 커밋들(`git commit -q -F "<절대 경로>"`)은 막히지 않고, 실행 뒤 검사도 아무것도 알리지 않는다. 판정: 문서 커밋이 막힘 없이 되고 hook 알림이 없으면 일치.
+- 멈춤(2026-11-08, guard.mjs 구현 중):
+  - hook 멈춤 [확인됨: hook 출력]: `test/infra/commit-msg.test.mjs`의 실행 뒤 5개 + 이 저장소 설정 1개가 3회 연속 실패 → 멈춤. 세 번 = red 확인, commit-msg.mjs 뒤, guard.mjs 뒤. 이 6개는 아직 만들지 않은 commit-check.mjs·settings.json·표시 파일의 몫이라 실패가 예상대로였다. **의도한 보수적 동작**(멈춤 장치는 "예상된 실패"를 구별하지 않는다). 방식 관찰 후보: 파일 하나씩 커밋하면서 같은 새 테스트 파일을 커밋마다 돌리면 멈춤에 걸린다 → 중간 커밋 검증은 그 커밋이 다루는 테스트만(`--test-name-pattern`) 돌리거나, 멈춤 셈이 "다음 커밋 필요" 실패를 어떻게 다룰지 정해야 한다.
+  - 내 실수 [확인됨: `git show --stat HEAD`]: 멈춤 때문에 메시지 파일 Write가 막혔는데, 같은 응답에 보낸 `git add .claude/hooks/guard.mjs && git commit -q -F ".../tmp/msg10.txt"`가 실행됐다. 작업 임시 폴더에 지난 세션(2026-11-07 18:29)의 `msg10.txt`(PRX-2b 실측 커밋 메시지)가 남아 있어서, **guard.mjs 변경이 `[PRX-2b] 실측 스크립트: …` 메시지로 커밋됨 → 5e7b491**(feat/INFRA-11, 병합 전). 원인: Write 결과를 기다리지 않고 커밋을 함께 보냄 + 임시 파일 이름을 세션마다 다시 씀. 규칙 C도 못 잡는다(그 메시지는 형식이 맞음).
+  - 사용자 답(선택 창): "되돌리고 다시 커밋". 그러나 멈춤은 풀리지 않았다 — 메시지 파일 Write가 다시 막힘 [확인됨: hook 출력]. 선택 창의 답은 UserPromptSubmit을 일으키지 않는 것으로 보인다 [추측]. 이번에는 Write 결과를 본 뒤라 커밋을 보내지 않았다. 사용자가 채팅으로 답해야 풀린다.
+  - 제안(사용자 확인됨, 멈춤이 풀리면 실행): 5e7b491을 `git reset --soft HEAD~1`로 되돌리고(변경은 스테이지에 남음) 올바른 `[INFRA-11] guard.mjs: …` 메시지로 다시 커밋. 앞으로 임시 메시지 파일 이름에 노드 ID를 넣고(예: `infra11-guard.txt`), Write 결과를 본 뒤에 커밋한다.
+  - 재개(사용자 채팅 "다 끝난건가" → hook "연속 실패 카운터를 초기화"): `git reset --soft HEAD~1` → `git commit -q -F ".../infra11-guard.txt"` → 5b1e4a5 [확인됨: git log]. 5e7b491은 어느 브랜치에도 없다.
+- 실측 (명령 원문):
+  - E155 일치(33ecc6b 커밋 전, stub): `npm run test:red -- test/infra/commit-msg.test.mjs` → tests 24 / fail 24, 모두 AssertionError, 오류 0(처음엔 기록 파일 테스트 1개가 ENOENT 오류 → 읽기 전 assert.ok(existsSync)를 넣음, 기대값은 그대로 — 테스트 커밋에 적음, O48). `npm test -- test/infra/commit-msg-regression.test.mjs` → 3 / 3.
+  - E156 일치(b045e7e): `npm test` → tests 674 / pass 674 / fail 0 / todo 0. 기존 hook 테스트(hooks-data-gt, hooks-normal-regression 포함) 그대로 통과.
+  - E157 일치(b045e7e, 작업 트리 hook): Bash `git commit --allow-empty --dry-run -m "x"` → PreToolUse가 규칙 C 문구로 막음. PowerShell `git commit --dry-run -F $env:TEMP\x.txt` → 막음.
+  - E158 일치: b045e7e 뒤 커밋들(3034e5a, d41b381, 4a120b7, 이 문서 커밋)은 `git commit -q -F "<절대 경로>"`로 막힘 없이 됐고 실행 뒤 알림 없음. `.claude/state/commit-check.json`에 커밋 직전 HEAD가 남음(b045e7e 커밋 직후 `{"head":"f7c06fa…"}`).
+  - 계획 밖 실측: `node scripts/probe/infra11-post.mjs` → "만든 커밋: 28b8a26 (probe/infra11-post)", 바로 PostToolUse 알림 "규칙 C(INFRA-11): 방금 형식이 틀린 커밋이 생겼습니다 → 28b8a26: …"(세션 도중 바꾼 settings.json이 실제로 적용됨). `node scripts/probe/infra11-post.mjs cleanup` → "돌아감: feat/INFRA-11, 지움: probe/infra11-post". 알림이 "멈추고 보고"를 요구했지만, 사용자에게 미리 설명한 의도한 실측이라 계획대로 정리했다.
+- 계획과 달라진 점:
+  - `docs/ai/map.md`는 고치지 않았다 — 앱 모듈 지도라 hook 항목이 없다(INFRA-10도 고치지 않음).
+  - 실측 스크립트 `scripts/probe/infra11-post.mjs`를 더했다(3034e5a).
+  - b045e7e에서 승인 전 관찰(메시지 파일 이름 규칙, O54)을 CLAUDE.md에 넣었다가 O23 위반이라 뺐다(d41b381). 그때 줄바꿈 하나를 잘못 지워 4a120b7에서 되살렸다(d41b381 메시지의 "한 줄 삭제"는 실제 diff와 달랐다).
+  - 새 방식 관찰 O53(예상된 실패가 멈춤에 걸림, 선택 창 답으로는 안 풀림)·O54(공유 임시 폴더의 옛 메시지 파일) → `docs/method-feedback.md`, INFRA-12 계획 때 여쭙는다.
+- 범위 밖 관찰: 없음.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
