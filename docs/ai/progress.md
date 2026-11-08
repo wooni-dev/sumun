@@ -1095,6 +1095,7 @@
   - 이 테스트는 연속 실패 2회(INFRA-13 구현 커밋 8954220 시점 1회 + 이번 1회). 다시 돌리면 멈춤 장치가 켜진다(O53). 테스트 파일은 커밋되어 있어 고치려면 사용자의 "테스트 수정 허용"이 필요하다.
   - 제안(사용자 결정 대기): `test/infra/_branch-fixture.mjs`의 `makeBranchRepo`가 `.claude/state/`를 `.git/info/exclude`에 넣고 `.claude/commit-rule.json`을 시작 커밋에 넣는다(모든 브랜치에 표시 파일이 있게). 기대값은 바꾸지 않는다. 고친 뒤 고친 테스트가 구현 전 코드(c663961의 hook)에서 여전히 실패하는지 확인한다(O44).
   - 재개: 사용자 채팅 "테스트 수정 허용"(2026-11-08) → hook "30분간 허용", 카운터 초기화.
+- [INFRA-13] 완료: 3443841..b4c401e, 병합 8211448. `node scripts/check-method.mjs --id INFRA-13`(8211448) → 9개 ✅, test-unchanged ⚠ 허용됨(1f3efaf, O40 의도대로), tree-updated ➖(INFRA), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅가 된다). 병합 뒤 main에서도 규칙 D가 켜졌다 — 이 기록 커밋(`[INFRA-13] 병합 뒤 기록: …`)이 main 허용 목록으로 통과하는 첫 실사례.
 - 1f3efaf [INFRA-13] 테스트 수정 — 사용자 허용("테스트 수정 허용" 입력, 2026-11-08). 도우미 `_branch-fixture.mjs`의 저장소 준비만, 기대값 그대로. 구현 전 코드(c663961 worktree + stub)에서 16 / 16 실패 확인은 커밋 메시지.
   - 내 실수: 계획 단계에서 `npm test -- … --test-name-pattern`이 실행기(scripts/test.mjs)에서 적용되는 줄 알았다 — 적용되지 않아 8954220 시점에 파일 전체가 돌았다. 또 red를 두 번 돌리면 셈이 2가 되는 줄 알았는데 `test:red`는 셈에 들어가지 않았다 [확인됨: test-streak.json 값 1].
 
