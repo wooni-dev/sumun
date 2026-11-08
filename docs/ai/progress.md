@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업(2026-11-08 새 세션): **[INFRA-13]** 완료(규칙 D — 브랜치·제목 ID 일치, `docs/ai/infra13-cases.md`). 다음 UI 큰 단위(아래 "다음 세션 첫 일" 2번). 아래는 지난 세션 종료 기록.
+- 작업(2026-11-08 새 세션): **[INFRA-13]** 완료(규칙 D — 브랜치·제목 ID 일치, `docs/ai/infra13-cases.md`). **[UI-T]** 진행 중(브랜치 feat/UI-T, 사례 `docs/ai/ui-cases.md`, 결정 D-1~D-16 모두 추천대로). 그다음 UI-1 → UI-5. 아래는 지난 세션 종료 기록.
 - 지난 세션 종료(2026-11-08). 사용자: "다음 세션에서 할게". main = 이 기록 커밋. `npm test` 684/684, 실패 0, 대기 0(2eba73a 기준 — 그 뒤는 문서만).
   - 이번 세션에 끝낸 것: [STO-5](바이트 상한은 완료부터, 모르는 필터 조건 오류) → **STO ✅** → [INFRA-11](O47 커밋 메시지 hook: guard.mjs 규칙 C + commit-check.mjs, 표시 파일 `.claude/commit-rule.json`) → [INFRA-12](O48~O54 지침, check-method merge-record·merge-records).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI ⬜(남은 큰 기능)**, SEC은 SEC-3 ✅(SEC-1·2는 각 단계에서 함께 검증).
@@ -1099,7 +1099,37 @@
 - 1f3efaf [INFRA-13] 테스트 수정 — 사용자 허용("테스트 수정 허용" 입력, 2026-11-08). 도우미 `_branch-fixture.mjs`의 저장소 준비만, 기대값 그대로. 구현 전 코드(c663961 worktree + stub)에서 16 / 16 실패 확인은 커밋 메시지.
   - 내 실수: 계획 단계에서 `npm test -- … --test-name-pattern`이 실행기(scripts/test.mjs)에서 적용되는 줄 알았다 — 적용되지 않아 8954220 시점에 파일 전체가 돌았다. 또 red를 두 번 돌리면 셈이 2가 되는 줄 알았는데 `test:red`는 셈에 들어가지 않았다 [확인됨: test-streak.json 값 1].
 
+### [UI-T] 계획
+- 근거: 사용자 지시(2026-11-08) "응, 시작해", 결정 질문에 "모두 추천대로". CLAUDE.md 큰 단위 절(O33) — 시작할 때 큰 단위 테스트를 먼저. 형식은 INFRA-9(`test/ui/UI-T.test.ts`, 동적 import, export 없음).
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 보안 사례(O10): 별도 컨텍스트 검토 에이전트 → `docs/ai/ui-cases.md`(U1~U52, F1~F12, 실험 E1~E9, 범위 밖 X1). 사용자 결정 D-1~D-16 모두 추천대로. 에이전트 실험 스크립트는 `scripts/probe/ui-review/`로 옮긴다(O19, 실측 커밋).
+- 작은 단위(목적 나무에 추가, Claude가 나눔): UI-1 서버 골격·요청 보호 → UI-2 프록시 쪽 차단 → UI-3 조회 API → UI-4 실시간 통로 → UI-5 화면.
+- 대기 파일 P = `src/dashboard/public/app.js`: 마지막 작은 단위 UI-5가 만든다.
+- **다시 할 행동(O42)** — 같은 실행 안에서:
+  - PRX-T 1: 실제 curl로 평문 `POST http://127.0.0.1:<목적지>/submit?x=1`(Cookie `k=PLAIN-COOKIE`, 본문 `hello-sumun`) → 200
+  - PRX-T 2: 실제 curl로 닫힌 포트 → 502
+  - TLS-T 1: CONNECT localhost → TLS(프록시 CA만 믿음) → `GET /hello?q=1` + Cookie → 200 `secure-hello`
+  - STO-T 1: 위 세 기록이 저장소에 쌓인다(완료 3건)
+  - 그 뒤 새 단계: 대시보드 페이지·API·실시간 알림·지우기, 그리고 보호(다른 출처·리바인딩 Host·Via·프록시를 거친 요청)
+- 설계 [추측] — 큰 단위 테스트가 고정하는 모양. 바꿀 땐 UI 보고서 결정 항목으로 올린다:
+  - `src/dashboard/server.ts`: `startDashboard({ store, port })` → `{ port, token, url, close() }`. 127.0.0.1에만 연다. `url` = `http://127.0.0.1:<port>/#t=<token>`(D-3)
+  - 페이지: `GET /` → 200 HTML(토큰 불필요), `GET /app.js` → 200 JavaScript. 응답 헤더: CSP에 `default-src 'self'`와 `frame-ancestors 'none'`, `Cache-Control`에 `no-store`, `X-Content-Type-Options: nosniff`, `Access-Control-Allow-Origin` 없음(D-7, D-11, D-16)
+  - API는 `Authorization: Bearer <token>`(D-2, D-3). 없거나 틀리면 401
+  - `GET /api/flows?method=&host=&status=` → `{ runId, items: 요약[] }`. `GET /api/flows/<id>` → 상세 JSON(헤더 포함). `GET /api/flows/<id>/body/request`·`/body/response` → `application/octet-stream` 원본 바이트. `GET /api/events` → `text/event-stream`, 줄 `data: <저장소 알림 JSON>`(D-4). `POST /api/clear`(`Content-Type: application/json`) → 204, `GET /api/clear` → 405(D-8)
+  - 보호: Host가 `127.0.0.1:<port>`·`localhost:<port>`가 아니면, Origin이 대시보드 자신이 아니면, `Sec-Fetch-Site: cross-site`·`same-site`면, `Via`에 sumun이 있으면 토큰이 맞아도 403(D-5~D-7)
+  - `src/proxy/server.ts`: `startProxy({ …, dashboardPort })` — 프록시를 거쳐 대시보드 포트로 가는 평문 요청과 CONNECT는 200이 아니고(거부와 안내), 기록도 생기지 않는다(D-5)
+- 한 줄 보고: 목표 = 대시보드 사용자 흐름과 보호를 처음부터 끝까지 확인하는 큰 단위 테스트를 먼저 둔다 / 범위 =
+  - 새 `test/ui/UI-T.test.ts`: (1) 위 행동 → 페이지·보안 헤더, 토큰 없으면 401, 목록(완료 3건, 요약에 쿠키 없음)·필터(method POST, status 502)·상세(쿠키)·본문(octet-stream), 실시간 알림(SSE로 새 요청의 done, 본문 없음), 지우기(POST 204 → 목록 비움, GET 405) (2) 보호: 리바인딩 Host·다른 Origin·`Sec-Fetch-Site: cross-site`·`Via: 1.1 sumun`은 토큰이 있어도 403, 프록시를 거친 대시보드 요청(평문·CONNECT)은 200이 아니고 기록이 늘지 않음. 도우미는 파일 안에 두고 export하지 않는다
+  - 새 `scripts/probe/ui-review/e1.mjs`·`e2.mjs`(에이전트 실험, 저장소 경로를 인자 없이도 찾게만 바꿈)
+  - 새 `docs/ai/ui-cases.md`, `docs/ai/purpose-tree.md`(UI 🔨, UI-T·UI-1~5 추가), `docs/for-me/UI-T.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 구현(UI-1~5), 프록시 코드 변경, X1(루프백 서비스 전체 보호)
+- 예상 [추측] (판정 기준 포함):
+  - E167: `npm run test:red -- test/ui/UI-T.test.ts` → 2개 모두 실패, 유형은 오류(동적 import한 `src/dashboard/server.ts`가 없음, ERR_MODULE_NOT_FOUND). 판정: 실패 2, 각각 ERR_MODULE_NOT_FOUND면 일치.
+  - E168: 테스트 커밋 뒤 `npm test`는 종료 코드 0, 출력에 "큰 단위 대기(todo) UI: 2개, 그중 실패 2개". 판정: 둘 다면 일치.
+  - E169: 옮긴 실험 스크립트가 저장소 안에서도 에이전트 결과와 같은 줄을 낸다(E1 200 비밀, E4 508, E6 기록 4건, E8 터널 200, E9 Host anything.evil·Via null). 판정: 다섯 다 같으면 일치.
+
 ## 범위 밖 문제
+- ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
 - ✅ (INFRA-5에서 해결) ~~[INFRA-3 보안 회귀]~~ stripData()가 **실행되는** heredoc/here-string 본문(`bash <<EOF`, `sh -s <<EOF`, `@'...'@ | Invoke-Expression`)까지 지워서, 본문 안의 테스트 파일 쓰기를 허용한다. 발견: INFRA-3 감사(2026-11-07). 확인: `node .git/verify-heredoc.cjs` → 3개 모두 allow [확인됨]. 상태 폴더 heredoc은 deny. 제안: INFRA-5(셸·인터프리터에 넘기는 경우는 본문을 지우지 않는다) → 사용자 보고.
