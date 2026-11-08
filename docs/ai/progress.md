@@ -3,7 +3,12 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: TLS 큰 단위 끝 절차 완료(AUDIT-6) — **`docs/for-me/TLS-report.md` 사용자 확인 대기**(결정 항목 18건, 방식 보정 O39~O46). 승인되면: 결정 1·2 → TLS-4c(복호화 터널 안 유휴·느린 헤더 연결, 인증서 오류 분류) → TLS ✅ → INFRA-10(O39~O46 반영) → SEC-3. TLS는 "🔨 확인 대기"(O37).
+- 작업: 세션 종료(2026-11-08). 사용자가 "다음 세션에서 진행". main = d642a81 + 이 기록 커밋. `npm test` 523/523, 실패 0, 대기 0.
+- **다음 세션 첫 일: `docs/for-me/TLS-report.md`의 사용자 답 받기**(결정 항목 18건, 방식 보정 O39~O46). 답을 보고서 머리와 method-feedback.md 승인 상태에 적는다.
+  - 승인되면 순서: ① TLS-4c(결정 1·2: 복호화 터널 안 유휴·느린 헤더 연결이 안 닫힘 — `scripts/review/tls/review-idle.ts`로 재현, 인증서 오류 분류를 목록 밖 코드까지) → ② TLS ✅(O37) → ③ INFRA-10(O39~O46을 CLAUDE.md·check-method에) → ④ SEC-3(루트 CA를 CurrentUser\Root에 등록·해제 — **명령을 실행 직전에 보여 주고 매번 확인**, 브라우저 실측, curl --ssl-no-revoke 문제) → STO → UI
+  - 큰 단위 기록 커밋은 `[AUDIT-n]` 이름으로(`[TLS]`로 하면 check-method가 작은 단위로 판정 — d642a81 보고서 실행 증거 5).
+  - 커밋 메시지는 Write 도구로 파일에 쓰고 `git commit -F`(hook이 리다이렉트+테스트 경로를 막음, 의도한 보수적 동작 — O45 후보).
+- 범위 밖으로 남은 것(보고서 '자세히 볼 부분'): 테스트 코드가 .claude/state/에 쓸 수 있는 빈틈(INFRA-9 사례 12), PRX-2 F6이 %LOCALAPPDATA%\sumun을 보지 않음, OS 연결 대기열 232개, curl --ssl-no-revoke.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
