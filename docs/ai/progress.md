@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [STO-T] 큰 단위 테스트(브랜치 feat/STO-T). 그다음 STO-1 → STO-2 → STO-3 → STO-4.
+- 작업: [STO-1] 저장·요약·상세·알림(브랜치 feat/STO-1). STO-T 완료(대기: src/store/attach.ts). 그다음 STO-2 → STO-3 → STO-4.
   - 세션 시작 대조(2026-11-08): main = 6add191, 작업 트리 깨끗 [확인됨] — 기록과 일치.
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - 사용자 확인 3건 결과(2026-11-08, 선택 창):
@@ -826,6 +826,7 @@
   - E137 일치(b9b2f79): `npm test` → 종료 코드 0, tests 593 / pass 591 / fail 0 / todo 2, "큰 단위 대기(todo) STO: 2개, 그중 실패 2개".
   - E138 일치(cd27f80): `scripts/probe/sto-review`에서 `node e2-proxy.mjs` → "E14 … s2 s3 f1 f2 f3", `node e3-mitm.mjs` → "E8b … 끝이 없는 시작 1:CONNECT", `node e5-reject.mjs` → 종료 코드 1. 처음에는 계획 커밋 전에 한 번 돌려 봤고(결과 같음), 판정은 계획 커밋 뒤 다시 돌린 것으로 했다.
 - 계획과 달라진 점: 없음.
+- [STO-T] 완료: 4ff4d7a..3e8deb2, 병합 9f356b1 + 이 기록 커밋. `node scripts/check-method.mjs --id STO-T`(9f356b1) → 11개 모두 ✅(message-format 포함). 다음: STO-1.
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
