@@ -1317,6 +1317,7 @@
 - hook이 막은 것: `.claude/state/junit.xml`을 `grep`·`cat`으로 읽으려던 Bash 명령이 "상태 폴더는 Claude가 직접 쓸 수 없습니다"로 막힘 — 읽기만 하는 명령이었다. 의도한 보수적 동작으로 보인다 [추측: 규칙 B는 상태 폴더 경로가 든 셸 명령을 패턴으로 막음]. Grep 도구로 읽었다.
 - 범위 밖 관찰: 없음.
 - UI 보고서 결정 항목: `docs/for-me/UI-4.md` "UI 보고서에 올릴 결정".
+- [UI-4] 완료: bdf5e89..e7b2d49, 병합 6552725. `node scripts/check-method.mjs --id UI-4`(6552725) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: [UI-5] 화면(`src/dashboard/public/app.js` — UI-T 대기가 풀린다).
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
