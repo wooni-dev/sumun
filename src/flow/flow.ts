@@ -30,9 +30,12 @@ export type Flow = {
   response?: Message & { status: number; statusMessage: string }; // 목적지가 보낸 응답만. 프록시가 만든 응답은 넣지 않는다 (H12)
   // by = 실패가 일어난 쪽, status = 프록시가 클라이언트에게 직접 보낸 응답 코드(보냈을 때만)
   // [PRX-3] bad-response = 목적지가 응답했지만 HTTP로 해석할 수 없음(Node의 HPE_* 오류). unreachable = 연결 자체가 안 됨
-  error?: { by: 'proxy' | 'client' | 'upstream'; code: 'rejected' | 'loop' | 'unreachable' | 'bad-response' | 'timeout' | 'upgrade' | 'aborted'; status?: number };
+  // [TLS-4] bad-certificate = 목적지 인증서를 믿을 수 없음(검증은 끄지 않는다). tls-handshake = 클라이언트와의 TLS 핸드셰이크 실패(CONNECT 기록에만)
+  error?: { by: 'proxy' | 'client' | 'upstream'; code: 'rejected' | 'loop' | 'unreachable' | 'bad-response' | 'timeout' | 'upgrade' | 'aborted' | 'bad-certificate' | 'tls-handshake'; status?: number };
   // [TLS-1] CONNECT 불투명 터널: 내용은 기록하지 않고 양방향 바이트 수와 실제로 연결한 주소만(CONNECT 헤더·200 줄은 세지 않음, head는 셈)
   tunnel?: { bytesUp: number; bytesDown: number; address: string };
+  // [TLS-4] 복호화한 터널 안의 요청: 클라이언트가 TLS에서 보낸 SNI(없으면 null). 인증서·목적지는 SNI가 아니라 CONNECT 기준(사용자 결정 1)
+  tls?: { sni: string | null };
 };
 
 // [PRX-3] 결정 2: 요청을 받자마자 보내는 시작 알림. 같은 요청의 Flow와 id가 같다. 본문·응답은 아직 없다

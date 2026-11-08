@@ -23,13 +23,21 @@ export function safeText(s: string, max = HOST_MAX): string {
 
 // D3, D4, D5: `--port N` 또는 `--port=N` 하나만. 1~65535의 정수를 십진수 글자 그대로(앞자리 0, 부호, 공백, 지수, 16진수 없이).
 // 중복·모르는 인자는 거부한다. 환경 변수는 읽지 않는다 — 바인딩 주소(127.0.0.1)는 어떤 입력으로도 바뀌지 않는다.
-export function parseArgs(argv: string[]): { port: number } | { error: string } {
+// [TLS-4] `--decrypt`: HTTPS를 복호화한다(사용자 결정 2026-11-08 — 루트 CA를 등록하기 전에는 브라우저가 경고하므로 기본은 끔).
+// 줄 때만 결과에 decrypt: true를 붙인다(없을 때의 모양은 PRX-4 그대로)
+export function parseArgs(argv: string[]): { port: number; decrypt?: true } | { error: string } {
   // 오류 메시지 속 입력값: 이스케이프하고 40자까지만(L10). 잘림 표시도 ASCII로 쓴다
   const show = (v: string) => `"${safeText(v.slice(0, 40), 1000)}${v.length > 40 ? '...' : ''}"`;
   let port: number | undefined;
+  let decrypt = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     let v: string;
+    if (a === '--decrypt') {
+      if (decrypt) return { error: '--decrypt는 한 번만 줄 수 있습니다.' };
+      decrypt = true;
+      continue;
+    }
     if (a === '--port') {
       if (i + 1 >= argv.length) return { error: '--port 뒤에 포트 번호가 필요합니다.' };
       v = argv[++i];
@@ -39,7 +47,7 @@ export function parseArgs(argv: string[]): { port: number } | { error: string } 
     if (!/^[1-9][0-9]{0,4}$/.test(v) || Number(v) > 65535) return { error: `포트는 1~65535의 정수여야 합니다: ${show(v)}` };
     port = Number(v);
   }
-  return { port: port ?? DEFAULT_PORT };
+  return decrypt ? { port: port ?? DEFAULT_PORT, decrypt: true } : { port: port ?? DEFAULT_PORT };
 }
 
 // 요약 한 줄: "시각 메서드 호스트:포트 상태(또는 실패 코드 상태) 소요ms". 모양이 깨진 기록에도 예외를 던지지 않는다(M8).

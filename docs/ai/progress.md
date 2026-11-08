@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-3] 완료(병합 뒤 발견한 지연 결함까지 고쳐 main에 병합). 다음: TLS-4.
+- 작업: [TLS-4] 완료(main에 병합). 다음: TLS-4b(복호화 견고성) → TLS 큰 단위 끝 절차.
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -585,6 +585,48 @@
   - E94 일치: `npm test` 3회 → 3번 모두 494 / 492 통과 / 실패 0.
 - hook 기록(O25): 실측 커밋 메시지를 printf로 쓰다 막힘(메시지 안의 "npm test" 글자와 리다이렉트) → 의도한 보수적 동작. 커밋 메시지는 Write 도구로 쓰는 것으로 정함.
 
+### [TLS-4] 계획
+- 사용자 승인(2026-11-08): "TLS-4 진행". 결정 4개 — SNI ≠ CONNECT면 **CONNECT 기준**, 터널 안 Host가 다르면 **421**, 목적지 불신은 **터널 안 502**, `npm start` 복호화는 **`--decrypt`일 때만**(모두 추천안).
+- 미확인 항목(O13): 변화 없음(남은 것: ai-research Read 규칙, Ctrl+C, EACCES — 세션 밖 조건).
+- 보안 사례(O10): `docs/ai/tls4-cases.md`(검토 에이전트 약 70개 + 결정 11개, 작업자 결정 1개 추가). 크기 때문에 TLS-4와 TLS-4b(견고성)로 나눴다(목적 나무에 TLS-4b 추가). H1·H4(실제 브라우저)는 등록이 필요해 SEC-3으로(O28).
+- 큰 단위 테스트: 이 단위가 대기 파일 `src/tls/mitm.ts`를 만든다 → TLS-T 2개가 실제 검사가 된다.
+- 한 줄 보고: 목표 = CONNECT 뒤 TLS를 종료해 복호화한 요청을 기록하고, 검증한 HTTPS 목적지로 중계 / 범위 =
+  - 새 `src/tls/mitm.ts`: `openMitm(...)`(CONNECT 검사 → 200 → TLS 서버 핸드셰이크 → 안쪽 HTTP 서버로), `createCertCache(ca)`(호스트별 발급, single-flight, 실패는 캐시 안 함)
+  - `src/tls/tunnel.ts`: CONNECT 대상 검사(해석·이름 한 번·루프)를 `openTunnel`과 `openMitm`이 같이 쓰도록 함수로 나눔
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `ca`, `upstreamCA`. 요청 처리기를 함수로 나눠 평문과 터널 안 요청이 같이 씀. 터널 안: Host 421, 목적지 `https.request`(검사한 주소, servername, 신뢰 목록 = 공개 CA + upstreamCA, 검증 명시), `bad-certificate` 502
+  - `src/flow/flow.ts`: 오류 code `bad-certificate`·`tls-handshake`, 칸 `tls?: { sni }`
+  - `src/cli.ts`: `parseArgs()`에 `--decrypt`, `formatSummary()`가 https 요청 줄을 보이게
+  - `src/index.ts`: `--decrypt`면 `loadOrCreateCA(defaultCADir())` → `startProxy({ ca })`
+  - 새 `test/tls/TLS-4.test.ts`(새 동작), 새 `test/tls/TLS-4-regression.test.ts`, 새 `scripts/probe/tls4-*.mjs`
+  - `docs/ai/tls4-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/TLS-4.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 배정 "4b", Windows 인증서 저장소 등록(SEC-3), 실제 브라우저 확인(SEC-3), HTTP/2·WebSocket 해석
+- 예상 [추측] (판정 기준 포함):
+  - E95: `https.request`에 `rejectUnauthorized: true`를 명시하면 `NODE_TLS_REJECT_UNAUTHORIZED=0`이어도 자체 서명 목적지가 실패한다. 판정: 오류 code가 인증서 오류(DEPTH_ZERO_SELF_SIGNED_CERT 등)면 일치.
+  - E96: CONNECT 소켓에 head를 되돌려 넣고(`unshift`) `new tls.TLSSocket(socket, { isServer: true })`로 감싸면, CONNECT와 같은 write로 온 ClientHello로도 핸드셰이크가 된다. 판정: 성공.
+  - E97: 안쪽 `http.Server`에 `emit('connection', tlsSocket)`으로 넘기면 keep-alive 요청 3개를 차례로 처리한다. 판정: 응답 3개.
+  - E98: 목적지 인증서 오류 코드 — 만료 CERT_HAS_EXPIRED, 자체 서명 DEPTH_ZERO_SELF_SIGNED_CERT, 이름 불일치 ERR_TLS_CERT_ALTNAME_INVALID, 모르는 CA UNABLE_TO_VERIFY_LEAF_SIGNATURE. 판정: 실측한 코드 목록을 구현의 bad-certificate 판정에 쓴다(다르면 기록).
+  - E99: 이 PC의 curl(Schannel)이 `--cacert <루트>`로 Windows 저장소 없이 MITM 프록시를 거친 HTTPS에 200을 받는다. 판정: 200. 폐기 확인 오류(CRYPT_E_NO_REVOCATION_CHECK 등)면 `--ssl-no-revoke`로 다시 하고 기록.
+  - E100: stub(mitm.ts가 빈 함수, server.ts는 ca를 무시 → CONNECT 501)에서 새 동작 테스트는 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E101: 구현 뒤 `npm test` 실패 0이고 **큰 단위 대기 TLS 0**(TLS-T 2개가 실제로 통과). 판정: 둘 다.
+- **멈춤(2026-11-08): 테스트 결함 보고, 사용자 결정 대기.** 구현(830f606..d0b0168) 뒤 `node --test --test-timeout=30000 test/tls/TLS-4.test.ts test/tls/TLS-T.test.ts test/prx/PRX-4.test.ts` → 63개 중 58 통과, 실패 5. 실패 5개는 모두 테스트 쪽 결함으로 판단 [확인됨: scripts/probe/tls4-test-defects.mjs, c8134fd]:
+  1. **TLS-T 1번**(큰 단위 테스트), **TLS-4 E11·B2**: 목적지 시험 서버가 `writeHead()` 뒤 `end()`로 응답해 응답이 chunked인데, 테스트는 본문이 원문 끝에 그대로 있다고 본다(`/\r\n\r\nsecure-hello$/`, `endsWith('secure-hello')`). 프록시는 HTTP 규칙대로 chunked를 그대로 전달하고, 풀면 본문은 "secure-hello"다. 제안: chunked를 풀어 본문을 비교한다(기대값 "본문 = secure-hello" 그대로).
+  2. **TLS-4 A11**: `tls.connect({ socket })`에 `host`를 안 주면 Node는 'localhost'로 이름을 검사해 IP 인증서와 맞지 않는다(ERR_TLS_CERT_ALTNAME_INVALID). `host: '127.0.0.1'`을 주면 성공. 제안: 테스트 도우미가 IP일 때 host를 넘긴다.
+  3. **TLS-4 G1**: 테스트의 가짜 lookup에 'localhost.'(끝점) 항목이 없어 그 변형만 502. 넣으면 20개 모두 같은 인증서. 제안: NAMES에 'localhost.'를 추가한다.
+  - 고치려면 사용자가 "테스트 수정 허용"을 입력해야 한다. TLS-T는 큰 단위 테스트라 고치는 내용을 보고서 결정 항목에도 올린다.
+- 이 PR 안에서 고친 구현 결함 2개: 이름이 여러 주소로 풀릴 때 첫 주소만 시도(TLS-T가 unreachable — 이 PC에서 localhost → ::1, 127.0.0.1) → 검사한 주소들을 차례로 시도(ac93999·336cb13). 클라이언트가 인증서를 거부해도 서버 쪽 오류 이벤트가 없어 기록이 비던 것 → 핸드셰이크 완료 여부로 판정(808f96f).
+- hook 기록(O25): 구현 스크립트(heredoc)와 같은 명령에서 테스트를 돌리려다 막힘 2회 → 의도한 보수적 동작. 수정 스크립트를 파일로 쓰고 명령을 나눔.
+- 재개(2026-11-08): 사용자가 "테스트 수정 허용" 입력 → 결함 4건을 고침(9d8a528, 원래 값·이유는 커밋 메시지). TLS-T(큰 단위 테스트)도 고쳤다 → TLS 보고서 결정 항목.
+- 전체 테스트에서 TLS-3 E45가 "20개 동시 52ms"로 실패(병렬 실행 부하) → 사용자 결정(2026-11-08) "기준선을 빼고 판정" → b1334f4.
+- 실측 (명령 원문, 결과 전문은 각 커밋 메시지):
+  - E95·E96·E97·E98 일치(f049895): `node scripts/probe/tls4-node.mjs` → head 1604바이트로 핸드셰이크, keep-alive 3개, 검증 명시 없이는 NODE_TLS_REJECT_UNAUTHORIZED=0이 만료·자체 서명·가짜 목적지의 본문을 통과시킴, 오류 코드 CERT_HAS_EXPIRED·DEPTH_ZERO_SELF_SIGNED_CERT·ERR_TLS_CERT_ALTNAME_INVALID·UNABLE_TO_VERIFY_LEAF_SIGNATURE.
+  - E100 일치(752437d): stub에서 16개 모두 assertion 실패, 오류 0(처음엔 TypeError가 섞여 상태 확인 assertion을 먼저 두도록 고침 — 커밋 전).
+  - E101 일치(b1334f4 뒤): `npm test` → 510 / 510 통과 / 실패 0 / **큰 단위 대기 0**.
+  - E99 일치(대체 경로, 8f32bb5): `node scripts/probe/tls4-curl.mjs` → curl --cacert만으로는 "(60) schannel: the revocation status is unknown", --ssl-no-revoke면 example.com 200. 믿을 수 없는 로컬 목적지는 502.
+- 계획과 달라진 점: cli.ts의 formatSummary는 바꾸지 않음(https 기록도 지금 모양으로 충분). 구현 결함 2개를 이 PR 안에서 고침(주소 목록, 핸드셰이크 판정). 테스트 결함으로 멈췄다 재개. 실측 스크립트 3개 추가(tls4-test-defects, tls4-curl, tls4-curl-revoke).
+- TLS-4b에 넘길 것: 불투명 터널의 첫 주소만 연결(범위 밖 기록), 핸드셰이크 뒤 클라이언트가 끊은 CONNECT 기록에 오류 코드가 없음(curl 실측 1번), 배정 "4b" 전부, B4(SNI가 IP). SEC-3에 넘길 것: 폐기 확인(CRL·OCSP 없음 — curl은 --ssl-no-revoke 필요), 실제 브라우저(H1·H4).
+- [TLS-4] 완료: 232991f..6299aee + 이 기록 커밋. 다음: TLS-4b.
+- `node scripts/check-method.mjs --id TLS-4` → 11개 중 10 ✅, test-unchanged ❌(9d8a528 — 사용자 허용으로 고친 테스트가 잡힘, 의도대로). `--id TLS-3`도 test-unchanged ❌(b1334f4 — 사용자 결정으로 E45 판정 방식을 바꿈) [확인됨]. 둘 다 TLS 큰 단위 감사·보고서에 올린다.
+
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
 
@@ -598,6 +640,8 @@
 - [INFRA-9 검토에서 발견, 범위 밖] `{ skip }`·`--test-skip-pattern`은 셈을 초기화한다(사례 13). 같은 이름 테스트가 셈을 섞는다(사례 17). 부모 테스트 실패가 junit에서 빠진다(검토자 실측).
 
 - ⚠ [TLS-1b 발견, 범위 밖 — 환경] 이 PC는 한순간에 몰린 TCP 연결을 약 232개만 받고 나머지는 ECONNREFUSED. 프록시의 대기 포트도 같다. backlog를 올려도 늘지 않는다 [확인됨: scripts/probe/tls1b-backlog.mjs] [추측: Windows 대기열 상한]. 브라우저는 한순간에 수백 개를 열지 않으므로 지금은 다루지 않는다.
+
+- ⚠ [TLS-4 발견, 범위 밖 — TLS-1 결함] 불투명 터널(openTunnel)은 검사한 주소 중 **첫 주소에만** 연결한다. 이 PC에서 `localhost`는 `::1`, `127.0.0.1` 순서로 풀리므로, 127.0.0.1에만 열린 서버로 `CONNECT localhost:P`를 하면 502가 난다 [추측: TLS-1 테스트는 lookup을 주입해 드러나지 않았다. 복호화 쪽은 TLS-4에서 주소들을 차례로 시도하게 고침]. 제안: TLS-4b에서 터널도 같은 방식으로.
 
 ## 시도하다 막힌 것
 (없음)

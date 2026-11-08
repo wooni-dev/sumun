@@ -57,6 +57,48 @@ export function isLoopTarget(addresses: string[], port: number, selfPort: number
 
 type End = Pick<Flow, 'error' | 'tunnel'>;
 const REASON: Record<number, string> = { 400: 'Bad Request', 502: 'Bad Gateway', 504: 'Gateway Timeout', 508: 'Loop Detected' };
+type Refusal = { status: number; message: string; error: NonNullable<Flow['error']> };
+
+// 고정 문구로 거절하고 연결을 닫는다(입력을 반영하지 않음 — PRX-1 B12). [TLS-4] 복호화(mitm.ts)도 같이 쓴다
+export function writeRefusal(socket: Socket, status: number, message: string, viaId: string) {
+  const body = `${status} ${REASON[status]}: ${message}\n`;
+  if (!socket.destroyed) {
+    socket.end(`HTTP/1.1 ${status} ${REASON[status]}\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(body)}\r\nvia: ${viaId}\r\nconnection: close\r\n\r\n${body}`);
+  }
+}
+
+// [TLS-4] CONNECT 하나를 검사한다: 먼저 거절됨 → 본문 헤더 → 대상 형식 → 이름 한 번 해석 → 루프. 불투명 터널과 복호화가 같은 규칙을 쓴다.
+// 결과: ok(검사한 주소) / refuse(보낼 거절) / aborted(검사하는 동안 클라이언트가 끊음)
+export async function checkConnect(o: {
+  req: IncomingMessage;
+  socket: Socket;
+  selfPort: number;
+  lookup: Lookup;
+  rejected?: { status: number; message: string; code: 'rejected' | 'loop' };
+}): Promise<{ ok: { host: string; port: number; address: string; addresses: string[] } } | { refuse: Refusal } | { aborted: true }> {
+  const no = (status: number, message: string, error: NonNullable<Flow['error']>) => ({ refuse: { status, message, error } });
+  if (o.rejected) return no(o.rejected.status, o.rejected.message, { by: 'proxy', code: o.rejected.code, status: o.rejected.status });
+  // 결정 5: CONNECT에는 본문이 없다(RFC 9110 9.3.6). 본문 헤더가 있으면 경계 해석이 갈려 스머글링의 재료가 된다 (R2)
+  if (o.req.headers['content-length'] !== undefined || o.req.headers['transfer-encoding'] !== undefined) {
+    return no(400, 'CONNECT 요청에는 본문을 쓸 수 없습니다.', { by: 'proxy', code: 'rejected', status: 400 });
+  }
+  const parsed = parseConnectTarget(o.req.url ?? '');
+  if ('error' in parsed) return no(400, parsed.error, { by: 'proxy', code: 'rejected', status: 400 });
+  const { host, port } = parsed;
+
+  // 결정 12: 이름은 한 번만 해석하고, 검사한 그 주소로 연결한다(검사 뒤 다시 해석하면 DNS 리바인딩으로 루프 검사를 비켜 간다 — Q5)
+  const bare = host.replace(/^\[|\]$/g, '');
+  let addresses: string[];
+  try {
+    addresses = net.isIP(bare) ? [bare] : (await o.lookup(host)).map((a) => a.address);
+    if (!addresses.length) throw new Error('주소 없음');
+  } catch {
+    return no(502, '목적지 서버에 연결할 수 없습니다.', { by: 'upstream', code: 'unreachable', status: 502 });
+  }
+  if (o.socket.destroyed) return { aborted: true };
+  if (isLoopTarget(addresses, port, o.selfPort)) return no(508, '요청이 이 프록시로 되돌아옵니다.', { by: 'proxy', code: 'loop', status: 508 });
+  return { ok: { host, port, address: addresses[0], addresses } }; // addresses = 검사한 주소 전부(루프 검사를 모두 통과)
+}
 
 // 터널 하나의 수명. 결과는 finish로 정확히 한 번 알린다(사례 S2)
 export async function openTunnel(o: {
@@ -75,14 +117,7 @@ export async function openTunnel(o: {
   const { socket } = o;
   let done = false;
   const finish = (end: End) => (done ? undefined : ((done = true), o.finish(end)));
-  // 고정 문구로 거절하고 끝낸다(입력을 반영하지 않음 — PRX-1 B12)
-  const refuse = (status: number, message: string, error: NonNullable<Flow['error']>) => {
-    const body = `${status} ${REASON[status]}: ${message}\n`;
-    if (!socket.destroyed) {
-      socket.end(`HTTP/1.1 ${status} ${REASON[status]}\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${Buffer.byteLength(body)}\r\nvia: ${o.viaId}\r\nconnection: close\r\n\r\n${body}`);
-    }
-    finish({ error });
-  };
+  const refuse = (status: number, message: string, error: NonNullable<Flow['error']>) => (writeRefusal(socket, status, message, o.viaId), finish({ error }));
   o.track(socket);
 
   let upstream: Socket | undefined;
@@ -94,28 +129,11 @@ export async function openTunnel(o: {
     if (!established) (upstream?.destroy(), finish({ error: failure ?? { by: 'client', code: 'aborted' } })); // 연결 전에 끊음 (R5d)
   });
 
-  if (o.rejected) return refuse(o.rejected.status, o.rejected.message, { by: 'proxy', code: o.rejected.code, status: o.rejected.status });
-  // 결정 5: CONNECT에는 본문이 없다(RFC 9110 9.3.6). 본문 헤더가 있으면 경계 해석이 갈려 스머글링의 재료가 된다 (R2)
-  if (o.req.headers['content-length'] !== undefined || o.req.headers['transfer-encoding'] !== undefined) {
-    return refuse(400, 'CONNECT 요청에는 본문을 쓸 수 없습니다.', { by: 'proxy', code: 'rejected', status: 400 });
-  }
-  const parsed = parseConnectTarget(o.req.url ?? '');
-  if ('error' in parsed) return refuse(400, parsed.error, { by: 'proxy', code: 'rejected', status: 400 });
-  const { host, port } = parsed;
+  const checked = await checkConnect(o);
+  if ('refuse' in checked) return refuse(checked.refuse.status, checked.refuse.message, checked.refuse.error);
+  if ('aborted' in checked) return finish({ error: failure ?? { by: 'client', code: 'aborted' } });
+  const { port, address } = checked.ok;
 
-  // 결정 12: 이름은 한 번만 해석하고, 검사한 그 주소로 연결한다(검사 뒤 다시 해석하면 DNS 리바인딩으로 루프 검사를 비켜 간다 — Q5)
-  const bare = host.replace(/^\[|\]$/g, '');
-  let addresses: string[];
-  try {
-    addresses = net.isIP(bare) ? [bare] : (await o.lookup(host)).map((a) => a.address);
-    if (!addresses.length) throw new Error('주소 없음');
-  } catch {
-    return refuse(502, '목적지 서버에 연결할 수 없습니다.', { by: 'upstream', code: 'unreachable', status: 502 });
-  }
-  if (socket.destroyed) return finish({ error: failure ?? { by: 'client', code: 'aborted' } });
-  if (isLoopTarget(addresses, port, o.selfPort)) return refuse(508, '요청이 이 프록시로 되돌아옵니다.', { by: 'proxy', code: 'loop', status: 508 });
-
-  const address = addresses[0];
   // 결정 6(사례 R6): 반쪽 닫기를 허용한다. 기본값(false)이면 목적지의 FIN을 받는 순간 목적지 쪽 쓰기도 닫혀서
   // 클라이언트가 그 뒤 보낸 바이트가 목적지에 닿지 않고, pipe가 풀려 클라이언트 쪽 소켓과 기록이 남는다 [확인됨: scripts/probe/tls1b-leak.mjs]
   const up = o.connect({ host: address, port, allowHalfOpen: true });

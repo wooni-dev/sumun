@@ -300,14 +300,21 @@ test('D44: 발급하는 동안 디스크에 아무것도 쓰지 않는다(fs 쓰
   }
 });
 
-test('E45: 1회 발급 동안 이벤트 루프 최대 지연 50ms 이하(결정 13), 20개 동시도 50ms 이하', async () => {
+// [TLS-4에서 고침, 사용자 결정 2026-11-08 "기준선을 빼고 판정"] 원래는 지연 절댓값 ≤ 50ms였다. 전체 테스트를 병렬로 돌리면
+// 아무 일 없이도 타이머가 30~40ms 늦어(scripts/probe/tls3-lag.mjs 기준선) 우리 코드와 무관하게 52ms로 실패했다(9d8a528 뒤 전체 실행).
+// 같은 테스트 안에서 일 없이 잰 지연(기준선)을 빼고 우리 코드가 더한 몫만 본다. 기준 50ms는 그대로(결정 13)
+test('E45: 1회 발급 동안 이벤트 루프 지연(기준선을 뺀 몫) 50ms 이하(결정 13), 20개 동시도 50ms 이하', async () => {
   await issue(['warm.example.com']); // 첫 호출의 JIT·모듈 준비를 빼고 잰다
   let stop = lagMeter();
+  await new Promise((r) => setTimeout(r, 300)); // 기준선: 아무 일도 하지 않을 때의 지연
+  const base = await stop();
+  assert.ok(Number.isFinite(base) && base >= 0, `전제: 기준선을 쟀다(${base})`);
+  stop = lagMeter();
   await issue(['one.example.com']);
   const one = await stop();
   stop = lagMeter();
   await Promise.all(Array.from({ length: 20 }, (_, i) => issue([`c${i}.example.com`])));
   const many = await stop();
-  assert.ok(one <= 50, `1회 ${one.toFixed(0)}ms`);
-  assert.ok(many <= 50, `20개 동시 ${many.toFixed(0)}ms`);
+  assert.ok(one - base <= 50, `1회 ${one.toFixed(0)}ms(기준선 ${base.toFixed(0)}ms)`);
+  assert.ok(many - base <= 50, `20개 동시 ${many.toFixed(0)}ms(기준선 ${base.toFixed(0)}ms)`);
 });
