@@ -762,7 +762,8 @@
 - 남은 작은 빈틈: 거부(관리자·파이프)는 작업 기록에 시작 줄만 남고 이유가 없다.
 - 계획과 달라진 점: 범위에 없던 새 파일 `test/ca/SEC-3-log.test.ts`(O26 재현), `src/ca/ca.ts`는 `daclOf`와 함께 `me`도 export, 진입점에 작업 기록 파일(`%LOCALAPPDATA%\sumun\ca-command.log`), 실측 스크립트 3개(`sec3-reg`, `sec3-lookalike`, `sec3-browser`). E127은 PowerShell 실행 정책 때문에 `npm.cmd`로.
 - 범위 밖 관찰: 2026-11-08 오전 9:09에 시작된 `npm run test:red -- test/tls/TLS-4.test.ts` node 프로세스 4개(PID 5888·7664·8096·9296)가 아직 실행 중 — 이전 작업의 남은 프로세스로 보인다 [추측]. 종료하지 않고 사용자에게 보고.
-- [SEC-3] 완료: 8e2e616..(이 문서 커밋). 다음: 병합 → `check-method --id SEC-3` → STO.
+- [SEC-3] 완료: 8e2e616..cf85a75, 병합 7f5c498 + 이 기록 커밋. 다음: STO.
+- `node scripts/check-method.mjs --id SEC-3`(7f5c498) → 11개 중 10 ✅, **message-format ❌**(8fecd7e, a3d42f5): 또 `- 검증(저장소 쓰기 없음):`으로 썼다. INFRA-10에서 CLAUDE.md에 "콜론 앞에 괄호를 넣지 않는다"를 넣은 바로 다음 단위다 — 지침만으로는 막히지 않았다. 이력 재작성 없이 남긴다(TLS 보고서 결정 17). 방식 보정 후보 O47: 커밋 전에 메시지 파일을 검사하는 장치(예: commit-msg hook 또는 커밋 전 `check-method` 형식 검사 스크립트)를 둔다 — 승인 전이라 기록만(O23).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
