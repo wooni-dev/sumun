@@ -61,14 +61,16 @@ export function createEventHub(store: Store, options?: EventOptions) {
     for (const e of batch) chunk += `id: ${++seq}\ndata: ${JSON.stringify(e)}\n\n`;
     send(chunk);
   }
-  // 느린 구독자(U33): 쓴 뒤 보내지 못하고 쌓인 바이트가 상한을 넘으면 그 연결만 끊는다
+  // 느린 구독자(U33): 앞서 쓴 것 중 아직 보내지 못하고 쌓인 바이트가 상한을 넘으면 그 연결만 끊는다.
+  // 이번 덩어리를 쓰기 **전에** 본다 — 쓴 뒤에 보면 한 차례 알림이 상한보다 클 때 잘 읽는 연결까지 끊긴다
   function send(chunk: string) {
     for (const s of [...streams]) {
-      s.write(chunk);
       if (s.writableLength > limits.bufferBytes) {
         streams.delete(s);
         s.destroy();
+        continue;
       }
+      s.write(chunk);
     }
     idle();
   }
