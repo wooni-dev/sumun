@@ -9,6 +9,7 @@
   - 미확인(세션 밖, 남음): Edge·Firefox·Windows 시스템 프록시 설정 → SEC 큰 단위.
   - 지금 루트 CA는 **등록 안 됨**(2026-11-09 사용자 해제).
   - 다음: INFRA(O55~O61을 CLAUDE.md·check-method에) → UI-7(필터 0건 안내) → SEC 큰 단위.
+- 2026-11-09: **[INFRA-14] 진행 중** — `[RULE]` CLAUDE.md(O55~O57·O59~O61 문구, O58 설명) 뒤 check-method O58(계획 제목 E번호 대조 → ⚠ 확인 필요). 계획은 아래 "[INFRA-14] 계획".
 - 세션 종료(2026-11-08 자정 무렵). 사용자: "다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 796개 모두 통과, 실패 0, 대기 0(4ecb95d 코드 기준, 두 번 — 그 뒤는 실측 스크립트·문서만).
   - 이번 세션(/clear 뒤)에 끝낸 것: UI 큰 단위 끝 1~5단계(감사 [AUDIT-12], 보고서 `docs/for-me/UI-report.md` [AUDIT-13·14], 승인 [AUDIT-15] "모두 추천대로", 결정 4만 다시 여쭤 "메모리에만") → [UI-6] 화면 고침(검토 사례 ui6-cases K1~K37, 테스트 수정 허용 1건 4ecb95d, 병합 e10f397).
   - 목적 나무: PRX ✅, TLS ✅, STO ✅, **UI 🔨**(UI-T·UI-1~6·UI-2b·UI-5b 모두 ✅ — 남은 것은 결정 10 최종 확인), SEC은 SEC-3 ✅.
@@ -1455,6 +1456,27 @@
 - UI 마무리 보고 결정 항목(O28 재배정): K14·K19·K24(프로필·403 화면에 토큰 주소), K8의 U+FE0F, 범위 밖 X1~X4. `docs/for-me/UI-6.md` "UI 마무리 보고에 올릴 것".
 - 미확인(세션 밖): Edge·Firefox·Windows 시스템 프록시 설정에서의 loopback 예외, 사람이 터미널 주소를 직접 열 때 — UI 보고서 결정 10 최종 확인 때.
 - [UI-6] 완료: 64ec83d..e0d1361, 병합 e10f397. `node scripts/check-method.mjs --id UI-6`(e10f397) → 11개 ✅, test-unchanged ⚠ 허용됨(4ecb95d, O40 의도대로), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: UI 보고서 결정 10 — 사용자와 함께 실제 CA로 최종 확인(인증서 등록·해제는 사용자가 직접) → UI ✅.
+
+### [INFRA-14] 계획
+- 근거: UI 보고서 결정 21 승인(2026-11-08, O55~O61 — 반영 위치는 method-feedback.md 229행: O58 check-method, 나머지 CLAUDE.md). 사용자 지시(2026-11-09) "모두 추천대로"(결정 22 순서: UI ✅ → INFRA). CLAUDE.md는 앞의 `[RULE]` 커밋에서 바꿨다(O41).
+- 미확인 항목(O13): 변화 없음 — 남은 것(Edge·Firefox·Windows 시스템 프록시 설정의 loopback 예외)은 모두 세션 밖 조건, SEC 큰 단위에서(UI 보고서 결정 24).
+- O10: check-method는 hook·권한 같은 차단 규칙이 아니라 사후 기계 검사이고, 바꾸는 것은 결과를 ✅에서 ⚠로 낮추는 쪽뿐이다 → 검토 에이전트 사례는 받지 않는다 [추측]. O59: 해당 없음(큰 단위 사례 재사용 없음).
+- 설계 [추측]:
+  - `scripts/check-method.mjs` `checkCommits()`의 predictions-measured: 계획 커밋(commits[0]이 계획일 때) 제목에서 "예상" 뒤의 E번호를 읽는다 — `E<a>~E<b>`는 범위로 펼치고, `E<n>`은 하나씩(쉼표·`·` 구분). 계획 절에서 읽은 예상 목록에 없는 번호가 있으면:
+    - 실측 없음·판정 없음(❌)은 그대로 ❌(근거 끝에 읽지 못한 번호를 덧붙임)
+    - 그 밖(✅ 또는 "예상 E번호 없음" ➖)은 **ok = 'check' → "⚠ 확인 필요"**, 근거 "계획 제목의 예상 E172를 계획 절에서 읽지 못함(O58)"
+  - 출력 `mark()`: 'check' → "⚠ 확인 필요". `checkBigUnit()` sub-nodes: 'check'는 위반으로 세지 않고 "⚠ 확인 필요 → <노드> <규칙>"을 근거에 따로 적는다('warn'의 "⚠ 허용됨"과 구별).
+  - 계획 절에만 있고 제목에 없는 번호(UI-1의 E173 같은 추가 예상)는 경고하지 않는다.
+- 한 줄 보고: 목표 = 승인된 O55~O61 반영(지침은 [RULE]에서 끝, 이 노드는 O58 기계 검사) / 범위 =
+  - `scripts/check-method.mjs`: `checkCommits()` predictions-measured(계획 제목 E번호 대조), `checkBigUnit()` sub-nodes 근거, CLI `mark()`
+  - 새 `test/infra/check-method-infra14.test.mjs`(새 동작), 새 `test/infra/check-method-infra14-regression.test.mjs`(구현 전에도 통과해야 정상 — 제목 번호를 다 읽은 경우·계획 커밋 없는 경우·❌ 우선, O9)
+  - `docs/method-feedback.md`(O55~O61 반영 표시), `docs/for-me/INFRA-14.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = 다른 규칙 변경, 과거 progress.md 고치기(UI-1 E172 자리 옮기기), method-auditor 정의 변경, hook 변경
+- 예상 [추측] (판정 기준 포함):
+  - E199: 구현 전(지금 check-method)에서 `npm run test:red -- test/infra/check-method-infra14.test.mjs` → 새 동작 테스트가 모두 assertion 실패, 오류 0. `npm test -- test/infra/check-method-infra14-regression.test.mjs` → 모두 통과. 판정: 실패 수 = 새 동작 테스트 수·오류 0, 회귀 실패 0이면 일치.
+  - E200: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0, 기존 check-method 테스트 그대로 통과. 판정: 둘 다면 일치.
+  - E201: 구현 뒤 `node scripts/check-method.mjs --id UI-1` → predictions-measured가 "⚠ 확인 필요"이고 근거에 E172가 있다. `--id UI` → sub-nodes ✅이고 근거에 "⚠ 확인 필요 → UI-1 predictions-measured"가 있다. 판정: 셋 다면 일치.
+  - E202 [탐색]: 구현 뒤 `--id PRX`, `--id TLS`, `--id STO`, `--id UI`, `--id INFRA-3`~`--id INFRA-13`에서 "⚠ 확인 필요"가 나오는 노드와 번호를 기록한다(과거 계획에서 읽히지 않은 예상이 몇 개인지).
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
