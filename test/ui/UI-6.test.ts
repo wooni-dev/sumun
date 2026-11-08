@@ -246,11 +246,25 @@ function raw(port: number, data: string, ms = 3000) {
   });
 }
 
+// 포트가 비었는지(잠깐 열었다 닫아 본다)
+const portFree = (p: number) =>
+  new Promise<boolean>((r) => {
+    const s = net.createServer();
+    s.once('error', () => r(false));
+    s.listen(p, '127.0.0.1', () => s.close(() => r(true)));
+  });
+// 임시 포트 범위(49152~) 밖에서 P와 P+1이 모두 빈 번호. 임시 포트(port 0)를 비워 쓰면 npm start의 점유 검사가 P+1에 연결할 때
+// 병렬로 도는 다른 테스트가 port 0으로 받은 서버와 겹친다(Windows는 임시 포트를 연속 번호로 준다 — UI-2:172 실패, 6cbe3dc 기록)
+async function freePortPairOutsideEphemeral() {
+  for (let i = 0; i < 200; i++) {
+    const p = 20000 + Math.floor(Math.random() * 20000);
+    if ((await portFree(p)) && (await portFree(p + 1))) return p;
+  }
+  throw new Error('빈 포트 쌍을 찾지 못했습니다');
+}
+
 test('터미널 안내(G-7, K28): 프록시를 거친 대시보드 요청이 오면 실제 대시보드 포트로 <-loopback> 예시를 한 줄로', async () => {
-  const s = net.createServer();
-  await new Promise<void>((r) => s.listen(0, '127.0.0.1', () => r()));
-  const P = (s.address() as net.AddressInfo).port;
-  await new Promise<void>((r) => s.close(() => r()));
+  const P = await freePortPairOutsideEphemeral();
   const c = startCli(['--port', String(P)]);
   try {
     await c.waitOut();
