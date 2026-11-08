@@ -9,7 +9,7 @@
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - **다음 세션 첫 일(순서):**
     1. ~~[UI-2]~~ 완료(2026-11-08, e5e5eaa.. — 아래 [UI-2] 계획). 원래 메모: 프록시 쪽 대시보드 차단(배정 "UI-2": U15·U16·U17): `startProxy({ …, dashboardPort })` — 프록시를 거쳐 대시보드 포트(127.0.0.1·localhost·숫자 표기 등 루프백 주소)로 가는 평문 요청과 CONNECT(불투명 터널·복호화 모두)를 중계하지 않고 우회 안내로 거부, **기록도 남기지 않는다**(UI-T 보호 테스트가 "기록이 늘지 않음"을 본다). `src/index.ts`가 대시보드 포트를 넘긴다. 재현: `node scripts/probe/ui-review/e1.mjs`·`e2.mjs`.
-    2. [UI-3] 조회 API(`/api/flows`, 상세, `/body/request|response` octet-stream, `POST /api/clear`, 페이지 상한 500 — STO 결정 6) → [UI-4] SSE `/api/events`(연결 상한 16, 큐에 넣고 바로 반환 — STO 결정 1, 느린 구독자 1MiB) → [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4). UI-T가 고정한 모양은 `docs/ai/progress.md` [UI-T] 계획.
+    2. ~~[UI-3]~~ 완료(2026-11-08, 사이에 UI-2b). 원래 메모: [UI-3] 조회 API(`/api/flows`, 상세, `/body/request|response` octet-stream, `POST /api/clear`, 페이지 상한 500 — STO 결정 6) → [UI-4] SSE `/api/events`(연결 상한 16, 큐에 넣고 바로 반환 — STO 결정 1, 느린 구독자 1MiB) → [UI-5] 화면 `src/dashboard/public/app.js`(textContent, "복호화 꺼짐" 안내 — STO 결정 4). UI-T가 고정한 모양은 `docs/ai/progress.md` [UI-T] 계획.
     3. UI 큰 단위 끝: 전체 테스트(대기 0) → 감사(method-auditor) → 목표 문서만 보는 검토 에이전트 → `docs/for-me/UI-report.md`(O52: -T 경로마다 실제 클라이언트, HTTPS는 사용자가 CA 등록 뒤 브라우저 — STO 결정 15) → `check-method --id UI`.
   - UI 보고서에 올릴 결정(추천으로 진행): 기본 대시보드 포트 = 프록시 + 1(차 있으면 다른 빈 포트), 주소는 시작 줄 끝, 페이지도 cross-site면 403, X1(프록시가 모든 루프백 서비스로 중계 — 리바인딩 노출), 목적 나무에 추가한 UI-T·UI-1~5.
   - 이번 세션에서 배운 것: Windows는 `listen(0)` 포트를 연속 번호로 준다(테스트 포트 +1은 자주 차 있다). `npm test -- 파일 --test-name-pattern`은 실행기에서 적용되지 않는다. `test:red`는 연속 실패 셈에 들어가지 않는다. 진단 명령에 `>`와 `test/` 경로를 함께 쓰면 hook이 막는다 → 스크립트 파일로. 규칙 D는 읽기만 하는 `git branch --show-current`도 커밋과 한 명령이면 막는다(Q6대로 정한 보수적 동작, 오탐에 가까움 — 명령을 나누면 됨. 고칠지는 UI 보고서 때 여쭙는다).
@@ -1274,6 +1274,7 @@
 - 계획과 달라진 점: 중간에 UI-2b를 먼저 했고(사용자 결정 A), 그 뒤 rebase로 커밋 해시가 바뀌었다(26fe94b→fa7a8ee, 51e5799→861fe21, 4b055fa→f8c9730, 4a74056→f805543).
 - 범위 밖 관찰: 없음(UI-2b 쪽 기록은 위).
 - UI 보고서 결정 항목: `docs/for-me/UI-3.md` "UI 보고서에 올릴 결정".
+- [UI-3] 완료: fa7a8ee..8b323bb, 병합 dce449e. `node scripts/check-method.mjs --id UI-3`(dce449e) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). 다음: [UI-4] 실시간 통로(SSE).
 - hook 알림(2026-11-08, 규칙 D 실행 뒤 검사 — INFRA-13): `feat/UI-3`에서 `git rebase main`(충돌은 progress.md 한 곳, 두 블록 모두 남김) → `git -c core.editor=true rebase --continue` 뒤 "명령 중 브랜치가 바뀐 뒤 커밋이 생겼습니다(명령 전 detached → 지금 feat/UI-3): f805543, f8c9730, 861fe21, fa7a8ee". 이 네 커밋은 UI-3의 26fe94b·51e5799·4b055fa·4a74056을 main(f7cbb52) 위로 다시 만든 것이고 제목은 모두 `[UI-3]`이다 [확인됨: git log]. rebase 중에는 HEAD가 detached라 검사가 브랜치 변경으로 본 것으로 보인다 [추측] — 의도한 보수적 동작인지 오탐(수정 대상)인지는 사용자 판단. 규칙대로 고치지 않고 멈춤, 되돌릴지 사용자에게 여쭘.
   - 사용자 결정(채팅 "A로 해"): 그대로 둔다. 이번 알림은 의도한 보수적 동작으로 기록. rebase를 hook이 다르게 다룰지는 UI 보고서 결정 항목.
 
