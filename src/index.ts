@@ -63,12 +63,19 @@ try {
   fatal(`시작하지 못했습니다(${safeText(String(code ?? '알 수 없는 오류'), 40)}).`);
 }
 
-// [UI-1] 대시보드(D-12 기본 켬). 기본 포트 = 프록시 포트 + 1(기본 실행이면 8081 — D-1). 못 쓰면 시작하지 않는다(U41)
+// [UI-1] 대시보드(D-12 기본 켬). 기본 포트 = 프록시 포트 + 1(기본 실행이면 8081 — D-1).
+// 직접 준 --dashboard-port를 못 쓰면 시작하지 않는다(U41). 기본으로 정한 포트가 차 있으면 다른 빈 포트(OS가 고름)에서 연다 —
+// 차 있는 포트는 쓰지 않으므로 가짜 대시보드 위험은 없다. 주소는 시작 줄에 나온다(7e0c9e1 결함: listen(0) 포트가 연속 번호라 +1이 자주 차 있다)
 let dash: Awaited<ReturnType<typeof startDashboard>> | undefined;
 if (dashboard !== false) {
   const dport = dashboardPort ?? (port < 65535 ? port + 1 : port - 1);
   try {
-    dash = await startDashboard({ store, port: dport });
+    try {
+      dash = await startDashboard({ store, port: dport });
+    } catch (err) {
+      if (dashboardPort !== undefined || (err as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw err;
+      dash = await startDashboard({ store, port: 0 });
+    }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === 'EADDRINUSE') fatal(`대시보드 포트 ${dport}를 이미 다른 프로그램이 쓰고 있습니다. 다른 포트로 시작하세요: npm start -- --dashboard-port 9001`);
