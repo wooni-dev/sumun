@@ -746,6 +746,16 @@
   - E129 실측: 등록 뒤 Windows curl(`curl -x` 프록시, `--cacert` 없이)은 `--ssl-no-revoke` 없이는 실패(종료 코드 ≠ 0)하고, 붙이면 HTTP 200. 판정: 둘 다면 일치.
   - E130 실측(사용자가 실행): `npm run ca -- uninstall` 뒤 status가 "등록 안 됨"이고, 새로 연 임시 프로필 Chrome이 같은 주소에서 인증서 오류(`ERR_CERT_AUTHORITY_INVALID`)를 낸다. 판정: 둘 다면 일치.
   - E131 [탐색] G6: 등록한 상태에서 우리 CA로 서명한 코드 서명용 말단 인증서를 `certutil -verify`(읽기 검증)에 넣으면 EKU 때문에 거부되는지 기록한다.
+- 실측 (명령 원문):
+  - E121·E122·E123·E124 일치(0b335f1): `node scripts/probe/sec3-reg.mjs`.
+  - E125 일치(6fd100f): stub으로 22개 모두 assertion 실패, 오류 0(A1·A2는 긍정 전제를 더한 뒤 — 커밋 메시지).
+  - E126 일치(aa67ed0 뒤 작업 트리): `npm test` → 588 / 588 / 실패 0 / 대기 0.
+  - E127 일치: 사용자가 PowerShell에서 실행. `npm run ca -- install`은 PowerShell 실행 정책 때문에 `npm.ps1`이 막혔다("이 시스템에서 스크립트를 실행할 수 없으므로") → `npm.cmd run ca -- install`. 첫 실행은 "※ 새로 만든 CA입니다(처음 실행)"까지 보이고 사용자가 멈췄고, 두 번째 실행에서 yes → "sumun: 등록됨 — 지문 090295D7C1EC2FBEC70E5BC849791A4DDE0E4459". 사용자: Windows 창의 지문이 같았다. `node src/ca-cmd.ts status` → "사용자 Root: 등록됨 ⚠ …", "컴퓨터 Root: 없음". 교차 확인 `certutil -user -store Root 090295d7…` → 1개(출력 CP949), 키 파일 `icacls` → `wooni\wooni:(F)`만.
+  - E128 일치·E129 일치: `node scripts/probe/sec3-browser.mjs registered` → "Chrome: 종료 코드 0, 본문에 "Example Domain" true, 인증서 오류 표시 없음", 요약 줄 `GET example.com:443 200`, "curl(--cacert 없이): 종료 코드 35, HTTP 000 / --ssl-no-revoke: 종료 코드 0, HTTP 200". 관찰: Chrome 배경 요청 `CONNECT accounts.google.com:443 tls-handshake` — Chrome이 우리 인증서를 거부(구글 계정 도메인의 별도 보호로 보임 [추측], G5).
+  - E131 [탐색] 기록: `node scripts/probe/sec3-browser.mjs g6` 세 번. ① `-verify`만 → 둘 다 CERT_E_CHAINING(사용자 Root를 안 봄) ② `-user -verify` → 둘 다 체인 성공·폐기 확인만 실패(용도 미지정) ③ `-user -verify <파일> <용도 OID>` → serverAuth 성공, **codeSigning `CERT_E_WRONG_USAGE`(루트 단계 CERT_TRUST_IS_NOT_VALID_FOR_USAGE)** — Windows가 루트의 EKU 제한(TLS-2 결정 4)을 지킨다.
+- **실측 중 범위 안 결함(O26 ① 기록, 2026-11-08):** E130(해제) 실측에서 사용자가 `npm.cmd run ca -- uninstall`을 실행하고 "예는 눌렀는데 해제됨은 못 봤다", 창은 닫았다. 확인 [확인됨]: 사용자 Root 레지스트리에 `090295D7…`가 그대로 있고, 실행 중인 ca-cmd·certutil 프로세스는 없다(명령은 끝났다). 진짜 CA + 가짜 쓰기로 흐름 재현 → 터미널에 `예`를 입력하면 "취소했습니다"만 찍고 certutil을 부르지 않는다(Windows 창도 안 뜸). `yes`면 `-user -delstore Root 090295d7…`를 부르고, 남아 있으면 "해제되지 않았습니다(certutil 종료 코드 N)". 어느 쪽이었는지는 **화면 출력 말고는 기록이 없어 알 수 없다** — 이것이 결함이다(창을 닫으면 원인이 사라진다). CAPI2 이벤트 로그는 권한 없음, Application 로그에 관련 기록 없음.
+  - 고칠 것: ① install·uninstall의 단계·지문·certutil 종료 코드를 `%LOCALAPPDATA%\sumun\ca-command.log`에 덧붙인다(키·비밀 없음, 저장소 밖) ② 입력이 `예`·`네`·`y`처럼 "예"의 뜻이면 여전히 취소하되(결정 C1 그대로) "영어 yes를 입력해야 합니다"라고 안내한다. 고친 뒤 사용자에게 해제를 다시 부탁한다.
+  - 재현 디버그 스크립트는 작업 폴더 밖 임시 파일이었다 — 같은 재현을 ② 재현 테스트로 저장소에 둔다(O19).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
