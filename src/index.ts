@@ -46,17 +46,18 @@ const hooks = attachStore(store);
 // 차 있는 포트는 쓰지 않으므로 가짜 대시보드 위험은 없다. 주소는 시작 줄에 나온다(7e0c9e1 결함: listen(0) 포트가 연속 번호라 +1이 자주 차 있다)
 // [UI-2] E-5: 프록시보다 먼저 연다 — 프록시는 시작할 때부터 실제 대시보드 포트(대체 포트여도)를 막는다(V16, V17).
 // 나중에 알려 주면 그 사이에 받은 CONNECT가 남는다(복호화는 터널 안 요청 때 연결한다 — V15)
+// [UI-5] decrypt: 화면이 "복호화 꺼짐" 안내를 보일지(STO 결정 4)
 let dash: Awaited<ReturnType<typeof startDashboard>> | undefined;
 if (dashboard !== false) {
   const dport = dashboardPort ?? (port < 65535 ? port + 1 : port - 1);
   try {
     try {
-      dash = await startDashboard({ store, port: dport });
+      dash = await startDashboard({ store, port: dport, decrypt: !!ca });
     } catch (err) {
       if (dashboardPort !== undefined || (err as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw err;
       // [UI-2] E-5: 대시보드를 프록시보다 먼저 연다. OS가 고른 포트가 프록시 포트와 같으면(프록시는 아직 열리지 않았다) 다시 고른다
-      dash = await startDashboard({ store, port: 0 });
-      for (let i = 0; i < 3 && dash.port === port; i++) (await dash.close(), (dash = await startDashboard({ store, port: 0 })));
+      dash = await startDashboard({ store, port: 0, decrypt: !!ca });
+      for (let i = 0; i < 3 && dash.port === port; i++) (await dash.close(), (dash = await startDashboard({ store, port: 0, decrypt: !!ca })));
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException)?.code;

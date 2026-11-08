@@ -23,6 +23,7 @@ const PUBLIC_DIR = path.join(import.meta.dirname, 'public');
 const PUBLIC: Record<string, [file: string, type: string]> = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
+  '/view.js': ['view.js', 'text/javascript; charset=utf-8'], // [UI-5] 화면 순수 함수(app.js가 import)
   '/app.css': ['app.css', 'text/css; charset=utf-8'],
 };
 
@@ -136,11 +137,13 @@ export async function startDashboard({
   port = 8081,
   headersTimeoutMs = 10_000, // 이 시간 안에 헤더를 다 보내지 않으면 닫는다(U37)
   events, // [UI-4] 실시간 통로 상한(기본 EVENT_LIMITS)
+  decrypt = false, // [UI-5] HTTPS 복호화를 켰는지 — 화면이 "복호화 꺼짐" 안내를 보일지 정한다(STO 결정 4)
 }: {
   store: Store;
   port?: number;
   headersTimeoutMs?: number;
   events?: EventOptions;
+  decrypt?: boolean;
 }): Promise<{ port: number; token: string; url: string; close: () => Promise<void> }> {
   if (port !== 0 && ((await portAnswers(port, BIND_HOST)) || (await portAnswers(port, '::1'))))
     throw Object.assign(new Error(`대시보드 포트 ${port}를 이미 다른 프로그램이 쓰고 있습니다.`), { code: 'EADDRINUSE' });
@@ -173,7 +176,7 @@ export async function startDashboard({
         if (method === 'OPTIONS') return fail(res, 405, { Allow: 'GET, HEAD, POST' });
         if (pathname.startsWith('/api/')) {
           if (!authorized(req, tokenBuf)) return fail(res, 401);
-          if (pathname === '/api/ping') return method === 'GET' ? json(res, { runId: store.runId }) : fail(res, 405, { Allow: 'GET' });
+          if (pathname === '/api/ping') return method === 'GET' ? json(res, { runId: store.runId, decrypt: decrypt === true }) : fail(res, 405, { Allow: 'GET' });
           // [UI-4] 실시간 통로(events.ts). 위의 검사를 모두 통과한 GET만 자리를 받는다(U32). 자리가 차면 503 — 오래된 연결을 끊지 않는다
           if (pathname === '/api/events') {
             if (method !== 'GET') return fail(res, 405, { Allow: 'GET' });
