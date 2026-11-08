@@ -8,7 +8,7 @@
 //   S-9 저장소마다 실행 식별자(runId)
 //   S-10 구독자의 throw·reject는 저장 상태·다른 구독자·프록시에 번지지 않고, 아무것도 출력하지 않는다(셈만)
 // 디스크에 쓰지 않고 아무것도 출력하지 않는다(PRX-2 결정). 기록에는 쿠키·토큰이 원본 그대로 있다.
-// 상한(STO-2), 필터(STO-3), 프록시 연결(STO-4)은 다른 단위다.
+// [STO-2] 상한: 바이트·완료 건수·진행 중 개수(STORE_LIMITS). 필터(STO-3), 프록시 연결(STO-4)은 다른 단위다.
 import crypto from 'node:crypto';
 import type { Flow, FlowStart, HeaderPairs, Target } from '../flow/flow.ts';
 
@@ -39,7 +39,7 @@ export type Store = {
   get(id: number): Flow | undefined;
   subscribe(fn: (event: StoreEvent) => unknown): () => void;
   clear(): void;
-  stats(): { flows: number; pending: number; subscriberErrors: number };
+  stats(): { flows: number; pending: number; bytes: number; subscriberErrors: number };
 };
 
 // 항목: 진행 중이면 시작 알림에서 꺼낸 칸만(헤더 배열은 붙잡지 않는다 — A8), 완료면 기록 전체
@@ -128,9 +128,52 @@ function summaryOf(e: Entry, runId: string): Summary {
   return s;
 }
 
-export function createStore(_options?: unknown): Store {
+// [STO-2] 결정 S-1·S-2: 기본 상한
+export const STORE_LIMITS = { maxBytes: 256 * 1_048_576, maxFlows: 10_000, maxPending: 1_000 };
+export type StoreOptions = Partial<typeof STORE_LIMITS>;
+
+// [STO-2] 항목의 메모리 비용 추정(바이트). 실제 힙 크기와 정확히 같지는 않다 — 상한이 "대략 이만큼"을 지키게 하는 값
+//   본문: 저장된 body.length(오간 전체 크기 bodySize가 아님 — A2)
+//   헤더: 쌍마다 64 + 2×(이름+값 길이). [string, string] 배열은 힙에서 쌍당 약 74바이트를 쓴다(sto-cases A3: 3,000쌍 건당 약 222KB)
+//   문자열: UTF-16으로 보고 2배
+const ENTRY_COST = 256;
+const PAIR_COST = 64;
+const pairsCost = (h: HeaderPairs | undefined) => {
+  let n = 0;
+  for (const p of h ?? []) n += PAIR_COST + 2 * ((p?.[0]?.length ?? 0) + (p?.[1]?.length ?? 0));
+  return n;
+};
+function costOf(e: Entry): number {
+  if (e.state === 'pending') return ENTRY_COST + 2 * (e.url.length + (e.target ? e.target.host.length + e.target.path.length : 0));
+  const f = e.flow;
+  return ENTRY_COST + 2 * f.request.url.length + f.request.body.length + pairsCost(f.request.headers) + (f.response ? f.response.body.length + pairsCost(f.response.headers) : 0);
+}
+
+function readOptions(o: unknown) {
+  if (o === undefined) return { ...STORE_LIMITS };
+  if (!o || typeof o !== 'object') throw new TypeError('저장소 옵션은 객체여야 합니다.');
+  const out = { ...STORE_LIMITS };
+  for (const key of Object.keys(STORE_LIMITS) as (keyof typeof STORE_LIMITS)[]) {
+    const v = (o as Record<string, unknown>)[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) throw new TypeError(`저장소 옵션 ${key}는 1 이상의 정수여야 합니다.`);
+    out[key] = v;
+  }
+  return out;
+}
+
+// [STO-2] 상한으로 뺀 진행 중 id를 기억하는 개수(늦은 완료를 버리기 위해 — S-5). 넘으면 가장 오래된 기억부터 잊는다
+const EVICTED_PENDING_MEMORY = 10_000;
+
+export function createStore(options?: StoreOptions): Store {
+  const limits = readOptions(options);
   const runId = crypto.randomBytes(8).toString('hex');
+  // 항목은 저장소에 먼저 들어온 순서(Map 삽입 순서)로 놓인다. 진행 중이 완료로 바뀌어도 자리는 그대로(Map.set은 기존 키의 순서를 지킨다)
   const entries = new Map<number, Entry>();
+  const costs = new Map<number, number>();
+  let bytes = 0;
+  let pendingCount = 0;
+  const evictedPending = new Set<number>();
   // S-5: clear() 때까지 본 가장 큰 id. 그 이하의 시작·완료는 clear 전에 시작한 요청이므로 버린다(프록시 id는 늘기만 한다)
   let floor = -1;
   let seenMax = -1;
@@ -174,25 +217,85 @@ export function createStore(_options?: unknown): Store {
     return true;
   };
 
+  // [STO-2] 항목 넣기·빼기는 여기로만: 비용·개수를 함께 맞춘다
+  function put(id: number, e: Entry) {
+    const old = entries.get(id);
+    if (old) remove(id, false);
+    entries.set(id, e); // 지운 뒤 다시 넣으면 순서가 바뀌므로, 바꿔 끼울 때는 아래 replace를 쓴다
+    const c = costOf(e);
+    costs.set(id, c);
+    bytes += c;
+    if (e.state === 'pending') pendingCount++;
+  }
+  function replace(id: number, e: Done) {
+    // 진행 중 → 완료: 같은 자리(Map 순서)에 둔다
+    const old = entries.get(id)!;
+    bytes -= costs.get(id) ?? 0;
+    if (old.state === 'pending') pendingCount--;
+    entries.set(id, e);
+    const c = costOf(e);
+    costs.set(id, c);
+    bytes += c;
+  }
+  function remove(id: number, rememberPending: boolean) {
+    const e = entries.get(id);
+    if (!e) return;
+    entries.delete(id);
+    bytes -= costs.get(id) ?? 0;
+    costs.delete(id);
+    if (e.state === 'pending') {
+      pendingCount--;
+      if (rememberPending) {
+        evictedPending.add(id);
+        if (evictedPending.size > EVICTED_PENDING_MEMORY) evictedPending.delete(evictedPending.values().next().value!);
+      }
+    }
+  }
+  // 먼저 들어온 항목부터(조건에 맞는 것 중) 하나 고른다. 방금 넣은 항목(keep)은 고르지 않는다
+  function oldest(keep: number, want?: Entry['state']) {
+    for (const [id, e] of entries) if (id !== keep && (want === undefined || e.state === want)) return id;
+    return undefined;
+  }
+  // S-1·S-2: 진행 중 → 완료 건수 → 바이트 순으로 상한을 맞추고, 뺀 id를 그 넣기의 알림 뒤에 한 번에 알린다
+  function enforce(keep: number) {
+    const out: number[] = [];
+    const drop = (id: number | undefined) => {
+      if (id === undefined) return false;
+      remove(id, true);
+      out.push(id);
+      return true;
+    };
+    while (pendingCount > limits.maxPending && drop(oldest(keep, 'pending')));
+    while (entries.size - pendingCount > limits.maxFlows && drop(oldest(keep, 'done')));
+    while (bytes > limits.maxBytes && drop(oldest(keep)));
+    if (out.length) emit({ type: 'evicted', ids: out.sort((a, b) => a - b) });
+  }
+
   const store: Store = {
     runId,
     addStart(start) {
       checkStart(start);
       if (!accept(start.id)) return;
-      if (entries.has(start.id)) return; // B6: 완료 뒤 늦게 온 시작, 중복 시작
+      if (entries.has(start.id) || evictedPending.has(start.id)) return; // B6: 완료 뒤 늦게 온 시작, 중복 시작
       const r = start.request;
       if (r.method === 'CONNECT') return; // S-2·A4
       const p: Pending = { state: 'pending', id: start.id, startedAt: start.startedAt, method: r.method, url: r.url, ...(r.target ? { target: copyTarget(r.target) } : {}) };
-      entries.set(start.id, p);
+      put(start.id, p);
       emit({ type: 'start', summary: summaryOf(p, runId) });
+      enforce(start.id);
     },
     addFlow(flow) {
       checkFlow(flow);
       if (!accept(flow.id)) return;
-      if (entries.get(flow.id)?.state === 'done') return; // 같은 id의 두 번째 완료는 무시
+      if (evictedPending.delete(flow.id)) return; // S-5: 상한으로 뺀 진행 중의 늦은 완료는 버린다
+      const prev = entries.get(flow.id);
+      if (prev?.state === 'done') return; // 같은 id의 두 번째 완료는 무시
       const d: Done = { state: 'done', flow };
-      entries.set(flow.id, d); // 진행 중 항목(시작 알림의 칸)을 바꿔 끼운다 — A8. 시작 없이 온 완료도 저장 — B1
+      // 진행 중 항목(시작 알림의 칸)을 같은 자리에 바꿔 끼운다 — A8. 시작 없이 온 완료도 저장 — B1
+      if (prev) replace(flow.id, d);
+      else put(flow.id, d);
       emit({ type: 'done', summary: summaryOf(d, runId) });
+      enforce(flow.id);
     },
     list() {
       return [...entries.keys()].sort((a, b) => a - b).map((id) => summaryOf(entries.get(id)!, runId));
@@ -214,13 +317,15 @@ export function createStore(_options?: unknown): Store {
     },
     clear() {
       entries.clear();
+      costs.clear();
+      bytes = 0;
+      pendingCount = 0;
+      evictedPending.clear(); // clear 기준선(floor)이 그 id들을 이미 덮는다
       floor = seenMax;
       emit({ type: 'cleared' });
     },
     stats() {
-      let pending = 0;
-      for (const e of entries.values()) if (e.state === 'pending') pending++;
-      return { flows: entries.size - pending, pending, subscriberErrors };
+      return { flows: entries.size - pendingCount, pending: pendingCount, bytes, subscriberErrors };
     },
   };
   return store;
