@@ -1174,6 +1174,7 @@
 - 계획과 달라진 점: 기본 포트가 차 있을 때 다른 빈 포트로 여는 규칙을 더했다(결함 수정). 새 재현 테스트 파일 `UI-1-default-port.test.ts`와 진단 스크립트 `scripts/probe/ui1-startup.mjs`·`ui1-ports.mjs`·`ui1-collide.mjs`를 더했다. 같은 새 테스트 파일을 실패한 채 두 번 돌렸다(OPTIONS — 두 번째는 진단용, O53 한도 안).
 - hook이 막은 것: 진단 명령(`>` + `test/` 경로) 2번 — 의도한 보수적 동작. 스크립트 파일로 실행했다.
 - 범위 밖 관찰: 없음.
+- [UI-1] 완료: f84e476..5f818f3, 병합 36c2a1c. `node scripts/check-method.mjs --id UI-1`(36c2a1c) → 11개 ✅, merge-record ➖ 기록 대기(이 기록 커밋에서 ✅). predictions-measured 근거에 E172가 나오지 않는다 — 계획에서 E172 줄이 결함 기록 블록 아래로 밀려 예상 목록으로 읽히지 않은 것으로 보인다 [추측: 코드 안 봄]. 실측 기록은 있다(E172 일치).
   - E172 실측(O31, 실제 클라이언트): `npm start -- --port 18080`을 띄우고 시작 줄의 주소를 확인한 뒤 curl로 `http://127.0.0.1:18081/` → 200 HTML, `/api/ping`(토큰 없음) → 401, 토큰 → 200, `-H "Origin: http://evil.example"` → 403, `-H "Host: evil.example:18081"` → 403. 판정: 다섯 다 이와 같으면 일치.
 
 ## 범위 밖 문제
