@@ -41,6 +41,21 @@ function codeSection(docText) {
 //   progressText(O40) = HEAD의 progress.md 전체, verdictRuleApplies(O46) = 판정 요구 규칙이 이 작업에 적용되는가
 // 결과 ok: true ✅ / false ❌ / null ➖ 건너뜀 / 'warn' ⚠ 허용됨(위반 아님 — 사용자가 허용한 테스트 수정, O40)
 //   mergeRecord(O50) = { applies: 규칙이 이 작업에 적용되는가, merged: `[ID] 병합` 병합 커밋이 있는가, recorded: `[ID] 병합 뒤 기록` 커밋이 있는가 }
+// [INFRA-14] O58: 계획 커밋 제목의 마지막 "예상" 뒤 E번호 — "E170~E172"는 범위로 펼치고(50개까지), "E5, E7"·"E5·E7"은 하나씩
+function titleNumbers(subject) {
+  const at = subject.lastIndexOf('예상');
+  if (at < 0) return [];
+  const out = [];
+  for (const m of subject.slice(at).matchAll(/E(\d+)(?:\s*~\s*E?(\d+))?/g)) {
+    const a = Number(m[1]);
+    const b = m[2] === undefined ? a : Number(m[2]);
+    if (b >= a && b - a <= 50) for (let n = a; n <= b; n++) out.push(`E${n}`);
+    else out.push(`E${a}`);
+  }
+  return [...new Set(out)];
+}
+
+// 결과 ok에 [INFRA-14] 'check' ⚠ 확인 필요(위반 아님 — 사람이 계획 절을 다시 볼 것, O58)가 더해졌다
 export function checkCommits({ id, commits, docExists, docText, planRuleApplies = true, progressSection, docAtCommit, readLine, laterCommits, progressText, verdictRuleApplies = false, mergeRecord }) {
   const results = [];
   const add = (rule, ok, detail, basis = '작업 커밋') => results.push({ rule, ok, detail, basis });
@@ -115,9 +130,14 @@ export function checkCommits({ id, commits, docExists, docText, planRuleApplies 
     // 판정 = 그 E번호가 있는 실측 줄에 "일치" 또는 "불일치"
     const noVerdict = verdictRuleApplies ? normal.filter((e) => !missing.includes(e) && !after.split('\n').some((l) => has(e).test(l) && /일치/.test(l))) : [];
     const ok = `예상 ${normal.join(', ') || '없음'} 모두 실측 기록 있음${explore.length ? ` / 탐색 ${explore.join(', ')} 기록 있음` : ''}`;
-    if (!predicted.length) add('predictions-measured', null, '예상 E번호 없음', 'HEAD');
-    else if (missing.length) add('predictions-measured', false, `실측 기록 없음 → ${missing.join(', ')}`, 'HEAD');
-    else if (noVerdict.length) add('predictions-measured', false, `실측 기록에 판정(일치/불일치) 없음 → ${noVerdict.join(', ')} (결과만 기록하려면 예상에 [탐색], O46)`, 'HEAD');
+    // [INFRA-14] O58: 계획 커밋 제목의 예상 번호 중 계획 절에서 읽지 못한 것(예상 줄이 다른 블록 아래로 밀린 경우 — UI-1 E172)
+    const unread = planned ? titleNumbers(commits[0].subject).filter((e) => !predicted.includes(e)) : [];
+    const unreadText = `계획 제목의 예상 ${unread.join(', ')}를 계획 절에서 읽지 못함(O58)`;
+    const note = unread.length ? ` / ${unreadText}` : '';
+    if (missing.length) add('predictions-measured', false, `실측 기록 없음 → ${missing.join(', ')}${note}`, 'HEAD');
+    else if (noVerdict.length) add('predictions-measured', false, `실측 기록에 판정(일치/불일치) 없음 → ${noVerdict.join(', ')} (결과만 기록하려면 예상에 [탐색], O46)${note}`, 'HEAD');
+    else if (unread.length) add('predictions-measured', 'check', predicted.length ? `${ok} / ${unreadText}` : unreadText, 'HEAD');
+    else if (!predicted.length) add('predictions-measured', null, '예상 E번호 없음', 'HEAD');
     else add('predictions-measured', true, ok, 'HEAD');
   }
 
@@ -148,7 +168,9 @@ export function checkBigUnit({ id, subnodes, reportText, lastRun }) {
   const failed = subnodes.flatMap((n) => n.results.filter((r) => r.ok === false).map((r) => `${n.id} ${r.rule}`));
   // [INFRA-10] O40: ⚠ 허용됨은 위반으로 세지 않고 따로 적는다
   const warned = subnodes.flatMap((n) => n.results.filter((r) => r.ok === 'warn').map((r) => `${n.id} ${r.rule}`));
-  const warnNote = warned.length ? ` / ⚠ 허용됨 → ${warned.join(', ')}` : '';
+  // [INFRA-14] O58: ⚠ 확인 필요도 위반으로 세지 않고 따로 적는다(⚠ 허용됨과 구별)
+  const checks = subnodes.flatMap((n) => n.results.filter((r) => r.ok === 'check').map((r) => `${n.id} ${r.rule}`));
+  const warnNote = (warned.length ? ` / ⚠ 허용됨 → ${warned.join(', ')}` : '') + (checks.length ? ` / ⚠ 확인 필요 → ${checks.join(', ')}` : '');
   add('sub-nodes', failed.length === 0, (failed.length ? `위반 → ${failed.join(', ')}` : `하위 노드 ${subnodes.length}개(${subnodes.map((n) => n.id).join(', ')}) 위반 없음`) + warnNote, '하위 노드');
   // [INFRA-12] O50: 하위 노드의 병합 뒤 기록이 모두 있는가(규칙 도입 전 노드는 ➖라서 세지 않는다)
   const waiting = subnodes.filter((n) => n.results.some((r) => r.rule === 'merge-record' && r.pending)).map((n) => n.id);
@@ -273,7 +295,7 @@ if (process.argv[1]?.endsWith('check-method.mjs')) {
     return { id: nodeId, commits, results };
   };
 
-  const mark = (r) => (r.ok === null ? '➖ 건너뜀' : r.ok === 'warn' ? '⚠ 허용됨' : r.ok ? '✅' : '❌');
+  const mark = (r) => (r.ok === null ? '➖ 건너뜀' : r.ok === 'warn' ? '⚠ 허용됨' : r.ok === 'check' ? '⚠ 확인 필요' : r.ok ? '✅' : '❌');
   const table = (results) => {
     console.log('| 규칙 | 결과 | 기준 | 근거 |\n|---|---|---|---|');
     for (const r of results) console.log(`| ${r.rule} | ${mark(r)} | ${r.basis} | ${r.detail} |`);
