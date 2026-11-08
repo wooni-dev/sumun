@@ -1211,6 +1211,7 @@
 - hook이 막은 것: `git checkout -b` + 테스트 파일 읽기를 한 명령에 넣음 → "커밋된 테스트 파일 수정"으로 차단 — 의도한 보수적 동작(checkout은 파일을 바꿀 수 있다). `git switch -c`와 읽기를 나눴다.
 - 범위 밖 관찰: `npm test -- test/tls`(폴더)는 실행기가 MODULE_NOT_FOUND로 "실패 1"을 낸다 — 파일 목록이어야 한다. 연속 실패 셈에 "test\tls" 이름으로 1이 들어갔을 수 있다 [추측: state 파일 안 봄]. 고치지 않음.
 - UI 보고서 결정 항목: `docs/for-me/UI-2.md` "UI 보고서에 올릴 결정"(E-2, E-3 두 가지, E-5, E-8, E-9 — V19·V20은 X1 갈래).
+- [UI-2] 완료: e5e5eaa..486dd4e, 병합 7d9062a. `node scripts/check-method.mjs --id UI-2`(7d9062a) → 11개 ✅(predictions-measured는 E174~E177 모두 읽음), merge-record ➖ 기록 대기(이 기록 커밋에서 ✅).
 
 ## 범위 밖 문제
 - ⚠ [UI 검토에서 발견, 범위 밖 — ui-cases.md X1] 프록시의 루프 검사는 자기 포트만 본다. 같은 PC의 루프백 서비스(개발 서버 등) 모두가 프록시를 거친 DNS 리바인딩에 노출된다 [확인됨: `node scripts/probe/ui-review/e1.mjs` E1~E3]. 개발 앱 기록(F5)이 주된 사용 사례라 막지 않는다 → UI 보고서 결정 항목.
