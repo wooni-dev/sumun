@@ -3,7 +3,7 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: [TLS-4] 완료(main에 병합). 다음: TLS-4b(복호화 견고성) → TLS 큰 단위 끝 절차.
+- 작업: [TLS-4b] 완료(main에 병합). TLS의 작은 단위가 모두 끝남 → 다음: TLS 큰 단위 끝 절차(전체 테스트 → method-auditor → 목표 문서만 보는 검토 → TLS-report.md → check-method --id TLS). TLS는 "🔨 확인 대기"(O37).
 - 다음 할 일(순서):
   1. ~~[TLS-1b] 터널 견고성~~ 완료(2064e4d..)
   2. ~~[TLS-2]~~ 완료(395dd35..). 남은 것은 [TLS-2b](쓰기 견고성·ACL, 배정 "2b") — 원래 메모: 시작 전에 사용자에게 다시 설명·확인: node-forge 설치(package.json 의존성 추가), 개인키는 `%LOCALAPPDATA%\sumun\ca\`(저장소 밖, 커밋 금지 — 2026-11-08 `%APPDATA%`에서 바꿈), 사용자 결정(2026-11-07): 등록 범위 = 현재 사용자(CurrentUser\Root), 유효 기간 1년. **Windows 저장소 등록 명령은 실행 직전에 보여 주고 매번 확인**. 보안 사례(O10) 먼저. TLS-T가 고정한 모양: `src/ca/ca.ts`의 `loadOrCreateCA(dir)`, `issueCert(ca, hosts)` → `{ certPem, keyPem }`.
@@ -626,6 +626,35 @@
 - TLS-4b에 넘길 것: 불투명 터널의 첫 주소만 연결(범위 밖 기록), 핸드셰이크 뒤 클라이언트가 끊은 CONNECT 기록에 오류 코드가 없음(curl 실측 1번), 배정 "4b" 전부, B4(SNI가 IP). SEC-3에 넘길 것: 폐기 확인(CRL·OCSP 없음 — curl은 --ssl-no-revoke 필요), 실제 브라우저(H1·H4).
 - [TLS-4] 완료: 232991f..6299aee + 이 기록 커밋. 다음: TLS-4b.
 - `node scripts/check-method.mjs --id TLS-4` → 11개 중 10 ✅, test-unchanged ❌(9d8a528 — 사용자 허용으로 고친 테스트가 잡힘, 의도대로). `--id TLS-3`도 test-unchanged ❌(b1334f4 — 사용자 결정으로 E45 판정 방식을 바꿈) [확인됨]. 둘 다 TLS 큰 단위 감사·보고서에 올린다.
+
+### [TLS-4b] 계획
+- 사용자 승인(2026-11-08): "TLS-4b 진행". 새 사용자 결정 없음 — tls4-cases.md 결정 3·5·6·8은 추천대로. 결정 9(실패 원인 세부)는 `error.detail` 대신 `tls.upstreamError`로 바꾼다(작업자 판단: TLS-T·TLS-4 테스트가 error를 정확히 비교하므로 error 모양을 바꾸지 않는다 → TLS 보고서 결정 항목).
+- 미확인 항목(O13): 변화 없음.
+- 보안 사례(O10): `docs/ai/tls4-cases.md` 배정 "4b"(A4·A6·A7·A13·A14·A15, B4·B7, C5·C6, D1·D2·D4·D5·D8·D9, E5·E7·E8·E9·E10·E14, F1·F2, G3·G5)와 TLS-4에서 넘긴 것(불투명 터널이 첫 주소에만 연결 — 범위 밖 기록 853d33e). 새로 받지 않는다.
+- 한 줄 보고: 목표 = 복호화와 터널이 이상한 입력·느린 클라이언트·여러 주소에서도 견고하게 / 범위 =
+  - `src/tls/mitm.ts`: `openMitm()` 핸드셰이크 타임아웃(옵션, 기본 10초), `createCertCache()` 상한(LRU 1000)·만료 1일 전 재발급(테스트용 now 주입)
+  - `src/proxy/server.ts`: `startProxy()` 옵션 `tlsHandshakeTimeoutMs`. `handle()`: 목적지 TLS 실패(인증서가 아닌 것)를 `tls-handshake`로 구별, 실패 원인 코드를 `tls.upstreamError`에, 터널 안 Upgrade 요청 거부. 안쪽 서버의 `upgrade` 처리
+  - `src/tls/tunnel.ts`: `openTunnel()`이 검사한 주소들을 차례로 시도(연결 거부·도달 불가면 다음 주소), 기록에 실제로 연결한 주소
+  - `src/flow/flow.ts`: `tls.upstreamError?`
+  - 새 `test/tls/TLS-4b.test.ts`(새 동작), 새 `test/tls/TLS-4b-regression.test.ts`(구현 전에도 통과해야 정상), 새 `scripts/probe/tls4b-*.mjs`
+  - `docs/ai/tls4-cases.md`, `docs/ai/purpose-tree.md`, `docs/ai/map.md`, `docs/for-me/TLS-4b.md`, `docs/ai/progress.md`
+  - 하지 않을 것 = Windows 저장소 등록·브라우저(SEC-3), HTTP/2·WebSocket 해석, 동시 핸드셰이크 상한(D9는 프로세스 유지만), 폐기 확인(A5, 문서), TLS 세션 재개(C6, Node agent:false라 섞이지 않는다는 것을 문서에)
+- 예상 [추측] (판정 기준 포함):
+  - E102 D8: 프록시(ALPN http/1.1만)에 클라이언트가 ALPN `h2`만 제안하면 Node 서버가 핸드셰이크를 거절한다(no_application_protocol). 판정: 클라이언트 쪽 오류가 나면 일치(구현 전에도 통과 → 회귀).
+  - E103 D2: 클라이언트가 maxVersion TLSv1.1이면 Node 기본(최소 1.2)으로 핸드셰이크 실패. 판정: 실패면 일치(회귀).
+  - E104 D1: 200 뒤 평문 `GET /` 바이트를 보내면 TLS 오류로 닫히고 CONNECT 기록 tls-handshake. 판정: 둘 다면 일치(TLS-4 구현으로 이미 됨 → 회귀).
+  - E105 E10: 안쪽 HTTP 서버에 `upgrade` 처리기가 없으면 Node 24는 Upgrade 요청을 [추측: 'request'로 넘기지 않고 소켓을 닫는다]. 판정: 실측 결과를 그대로 기록하고, 구현은 거부(502가 아닌 고정 문구 4xx/5xx)로 맞춘다.
+  - E106 C5·A13·A7: 목적지가 h2만 / 평문 TCP / TLS 1.0만이면 https.request 오류 코드가 인증서 오류가 아니다(ERR_SSL_… 또는 ECONNRESET 등). 판정: CERT_ERRORS에 없는 코드면 일치 → tls-handshake로 분류.
+  - E107 B4: Node 클라이언트에 servername '127.0.0.1'을 주면 [추측: 경고와 함께 SNI를 보내지 않거나 그대로 보낸다]. 판정: 실측 결과를 기록. 어느 쪽이든 인증서는 CONNECT 기준.
+  - E108: 새 동작 테스트는 지금 구현(b78c112)에서 모두 assertion 실패, 오류 0. 판정: 실패 수 = 테스트 수, 오류 0.
+  - E109: 구현 뒤 `npm test` 실패 0, 큰 단위 대기 0. 판정: 둘 다.
+- 실측(05d5607): E102·E103·E104 일치(회귀), **E105 불일치**(Upgrade가 일반 GET으로 바뀌어 전달), E106 일치(EPROTO·ERR_SSL_*), E107 기록(IP SNI여도 CONNECT 기준 인증서).
+- E108 일치(b8913fb): 7개 모두 assertion 실패, 오류 0. 회귀 6/6.
+- **멈춤(2026-11-08): 테스트 결함 보고, 사용자 결정 대기.** 구현 뒤 TLS 계열 96개 중 95 통과. 실패 1 = `test/tls/TLS-4b.test.ts` D4. 테스트는 "200 뒤 ClientHello를 보내지 않는 클라이언트"를 시험해야 하는데, 도우미 `connectMitm`(test/tls/_mitm.ts)은 200 뒤 곧바로 TLS를 시작해 ClientHello를 보낸다. 게다가 프록시 CA를 넘기지 않아 클라이언트가 인증서를 거부 → 기록이 timeout이 아니라 tls-handshake. 구현은 맞다 [확인됨: scripts/probe/tls4b-timeout.mjs → "CONNECT 응답 HTTP/1.1 200 / ClientHello 없이 기다림 → 316ms 뒤 닫힘 / 기록 [['CONNECT',{'by':'client','code':'timeout'}]]"]. 제안: D4 앞부분을 원시 소켓으로(CONNECT만 보내고 200을 읽은 뒤 아무것도 보내지 않음) 고친다(기대값 timeout 그대로). 사용자가 "테스트 수정 허용"을 입력해야 고칠 수 있다.
+- 재개(2026-11-08): "테스트 수정 허용" → D4 앞부분을 원시 소켓으로(9f211dd). 고친 D4가 구현 전 src에서는 실패함을 확인.
+- E109 일치: `npm test` → 523 / 523 통과 / 실패 0 / 대기 0. 실제 curl(4b 실측 스크립트): `node scripts/probe/tls4b-curl.mjs` → localhost로 127.0.0.1 서버에 200.
+- 계획과 달라진 점: 결정 9를 tls.upstreamError로(계획대로). 테스트로 만들지 않은 4b 사례 A4·A6·B7·C6·F1·F2(이유는 b8913fb) → TLS 보고서 결정 항목(O28). 핸드셰이크 뒤 클라이언트가 요청 없이 끊는 CONNECT 기록(curl 폐기 확인 실패)은 오류 없이 남는 그대로 — 브라우저 사전 연결과 구별할 수 없어 바꾸지 않음 [추측] → 보고서에.
+- [TLS-4b] 완료: 4568edc..(문서 커밋).
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.

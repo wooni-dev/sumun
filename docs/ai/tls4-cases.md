@@ -90,7 +90,7 @@
 | H3 | curl(Schannel) | `--cacert`로 Windows 저장소 없이 실측, 폐기 확인 오류가 나면 기록 | 4 |
 | H5 | `ca` 없이 | 지금처럼 불투명 터널 | 4(회귀) |
 
-처리: 4 → TLS-4 완료(`docs/for-me/TLS-4.md`). A9는 테스트 대신 실측(curl로 example.com 200)과 코드로, B4는 TLS-4b로 재배정(O28). 4b → TLS-4b에서.
+처리: 4 → TLS-4 완료(`docs/for-me/TLS-4.md`). A9는 테스트 대신 실측(curl로 example.com 200)과 코드로, B4는 TLS-4b로 재배정(O28). 4b → TLS-4b 완료(`docs/for-me/TLS-4b.md`). A4·A6·B7·C6·F1·F2는 테스트 대신 문서·기존 경로로(b8913fb, O28).
 
 ## 결정 (사용자 결정은 표시, 나머지는 추천으로 진행 — TLS 보고서에 올림)
 | # | 항목 | 정한 것 | 이유 |
