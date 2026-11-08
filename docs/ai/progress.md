@@ -3,7 +3,8 @@
 단서로만 쓴다. 세션을 시작할 때 git 이력과 테스트 결과로 대조한다.
 
 ## 현재
-- 작업: 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 이 기록 커밋. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
+- 작업(2026-11-08 새 세션): **[STO-5]** 진행 중(feat/STO-5). 아래는 지난 세션 종료 기록.
+- 지난 세션 종료(2026-11-08). 사용자: "모두 추천대로 다음 세션에서 진행할게". main = 8b494f4. `npm test` 641/641, 실패 0, 대기 0(86342b9 기준 — 그 뒤는 문서·실측 스크립트만).
   - 이번 세션에 끝낸 것: 사용자 확인 3건(SEC-3 테스트 수정 허용, O47 보류, 예전 프로세스 종료) → SEC-3 테스트 수정(c8b1b43) → STO-T → STO-1 → STO-2 → STO-3 → STO-4 → STO 감사(AUDIT-7)·검토·보고서(AUDIT-8) → **STO 보고서 승인**(결정 1~15 모두 추천대로, 이 기록 커밋).
   - 지금 루트 CA는 **등록 안 됨**(사용자가 해제, 2026-11-08 13:08). 다시 쓰려면 사용자가 `npm.cmd run ca -- install`(PowerShell은 `npm`이 실행 정책에 막힘 → `npm.cmd`).
   - **다음 세션 첫 일(순서, STO 보고서 결정 14):**
@@ -955,6 +956,25 @@
 - 4. 중간 확인 보고서 `docs/for-me/STO-report.md`: 결정 항목 15개(A 위험 1~4, B 낮은 위험 5~8, C 추천 진행 승인 9~13, D 다음 순서 14~15). **사용자 답 대기.**
 - 5. `node scripts/check-method.mjs --id STO`(080f5a3, 보고서 커밋 뒤) → sub-nodes ✅, big-unit-test ✅, big-unit-report ✅, big-unit-review ✅, big-unit-todo ✅.
 - 6. 사용자 답(2026-11-08): **승인** — "모두 추천대로 다음 세션에서 진행할게". 보고서 머리, method-feedback.md 승인 상태(O47~O52), 목적 나무(STO-5 추가, STO는 STO-5 뒤 ✅)에 적음.
+
+### [STO-5] 계획
+- 근거: STO 보고서 결정 2(R2)·7(R7), 승인 2026-11-08. 재현: `node scripts/probe/sto-final-review/r3-order.mjs` 7번(R2).
+- 미확인 항목(O13): 변화 없음(남은 셋 모두 세션 밖 조건).
+- 사용자 결정(2026-11-08, 이 세션): 결정 2 ①을 글자 그대로("바이트로는 완료만") 구현하면 STO-2 테스트 "S-2: 진행 중도 바이트 상한에 들어간다"(`test/sto/STO-2.test.ts:79`)와 충돌한다. 질문 → 답 **"완료 먼저, 그다음 진행 중"**: 바이트 상한은 먼저 들어온 완료부터 빼고, 방금 넣은 것 말고 완료가 하나도 없는데도 넘칠 때만 진행 중을 뺀다. 테스트는 고치지 않는다. 근거 [확인됨: 코드] 본문은 쪽마다 1MiB(`src/flow/flow.ts:6`), 요청 헤더 전체 16KB(`src/proxy/server.ts:273`) → 완료 하나 약 2MiB 이하, 진행 중 1,000개 약 33MB 이하라 실제 256MiB 상한에서는 ①과 같게 동작한다 [추측: 계산]. 보고서 머리에도 적음.
+- 설계 [추측]:
+  - `src/store/store.ts` `enforce`: 바이트 단계를 `oldest(keep, 'done')` 먼저, 없으면 `oldest(keep, 'pending')`으로. 진행 중·건수 단계는 그대로.
+  - `src/store/filter.ts` `parseFilter`: 자기 속성 이름(Object.keys)이 host·method·status·after·limit 밖이면 고정 문구 TypeError(`필터 조건 이름을 알 수 없습니다.` — 이름·값을 문구에 넣지 않는다, E2와 같은 규칙). 값이 undefined여도 오류(오타이므로). `matchesFilter`도 parseFilter를 거치므로 같이 바뀐다.
+- 한 줄 보고: 목표 = 바이트 상한은 완료부터 빼고(R2), 모르는 필터 조건 이름은 오류로(R7) / 범위 =
+  - `src/store/store.ts`: `enforce`(바이트 단계 순서)
+  - `src/store/filter.ts`: `parseFilter`(조건 이름 검사)
+  - 새 `test/sto/STO-5.test.ts`(새 동작: 완료가 진행 중보다 먼저 빠짐과 이벤트 순서, 남은 진행 중의 늦은 완료 저장, 모르는 조건 이름 TypeError — list·matchesFilter, 문구에 이름·값 없음), 새 `test/sto/STO-5-regression.test.ts`(아는 조건 다섯 개는 그대로 받음, 남길 완료가 없으면 바이트 상한이 진행 중을 뺌 — 구현 전에도 통과해야 정상, O9)
+  - `docs/ai/purpose-tree.md`(STO-5 ✅, STO ✅ — 결정 14), `docs/ai/map.md`, `docs/for-me/STO-5.md`, `docs/for-me/STO-2.md`(실제 메모리 약 330MB — 결정 5), `docs/for-me/STO-report.md`(머리에 결정 2 방식), `docs/ai/progress.md`
+  - 하지 않을 것 = R1(느린 구독자)·R3(진행 중 상세)·필터 기능 추가(상태 범위·부분 일치), 프록시·TLS 코드, STO-2 테스트 수정
+- 예상 [추측] (판정 기준 포함):
+  - E151: 구현 전(main 코드) `npm run test:red -- test/sto/STO-5.test.ts` → 새 동작 4개 모두 assertion 실패, 오류 0(모듈이 이미 있어 stub 없음). `npm test -- test/sto/STO-5-regression.test.ts` → 2 / 2 통과. 판정: 새 동작 실패 4·오류 0이고 회귀 실패 0이면 일치.
+  - E152: 구현 뒤 `npm test`(전체) → 실패 0, 대기 0(테스트 수 647은 참고값). 판정: 실패 0이고 "큰 단위 대기" 줄이 없거나 0이면 일치.
+  - E153 실측(O31): `node scripts/probe/sto4-cli.mjs`(실제 curl이 `npm start`를 거침) → curl 200·502, 출력 3줄, 표식 stdout·stderr false. 판정: 셋 다 STO-4 때(E150)와 같으면 일치.
+  - E154: `node scripts/probe/sto-final-review/r3-order.mjs` 7번(상한 10,000바이트에 50,000바이트 완료 하나) → 남길 완료가 없으므로 이벤트는 그대로 `["start:1","done:2","evicted:1"]`. 판정: 이 배열과 같으면 일치.
 
 ## 범위 밖 문제
 - ✅ (INFRA-3에서 해결) ~~[INFRA-1 결함] guard.mjs 오탐:~~ 셸 명령에 `>`와 `test/` 경로가 함께 있으면 "테스트 수정"으로 차단한다. 커밋 메시지의 `<noreply@anthropic.com>`, heredoc 본문, `-m "..."` 같은 **데이터 안의 `>`**도 리다이렉트로 본다. 발견: INFRA-2 테스트 커밋 시도(2026-11-07). 우회: 메시지를 파일로 쓰고 `git commit -F`. 수정 제안: heredoc 본문과 `-m` 인자를 빼고 판단 + 회귀 테스트 추가 → 사용자 보고 후 별도 작은 단위로.
